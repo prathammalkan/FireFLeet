@@ -1,0 +1,140 @@
+@import "tailwindcss";
+
+:root {
+  --ff-bg: #0a0a0f;
+  --ff-surface: #13131a;
+  --ff-surface-2: #1a1a24;
+  --ff-border: #1f1f2e;
+  --ff-primary: #f97316;
+  --ff-primary-dark: #ea580c;
+  --ff-accent: #fb923c;
+  --ff-text: #ffffff;
+  --ff-text-2: #9ca3af;
+  --ff-success: #22c55e;
+  --ff-warning: #eab308;
+  --ff-danger: #ef4444;
+  --safe-top: env(safe-area-inset-top);
+  --safe-bottom: env(safe-area-inset-bottom);
+  --safe-left: env(safe-area-inset-left);
+  --safe-right: env(safe-area-inset-right);
+}
+
+/* === Reset & Base === */
+* {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+html {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+#__next, main {
+  height: 100%;
+}
+
+/* === Scrollbar hiding === */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* === Safe area utilities === */
+.pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+.pt-safe { padding-top: env(safe-area-inset-top); }
+.mb-safe { margin-bottom: env(safe-area-inset-bottom); }
+
+/* === Custom animations === */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+@keyframes flame-flicker {
+  0%, 100% { transform: scaleY(1) rotate(-2deg); }
+  25% { transform: scaleY(1.05) rotate(2deg); }
+  50% { transform: scaleY(0.97) rotate(-1deg); }
+  75% { transform: scaleY(1.03) rotate(1deg); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, #1a1a24 25%, #252535 50%, #1a1a24 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+.animate-flame {
+  animation: flame-flicker 2s ease-in-out infinite;
+  transform-origin: bottom center;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradient-shift 4s ease infinite;
+}
+
+/* === Glass morphism === */
+.glass {
+  background: rgba(19, 19, 26, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* === Smooth scroll === */
+.smooth-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* === Input overrides === */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+}
+input[type="number"] { -moz-appearance: textfield; }
+
+/* === Selection === */
+::selection {
+  background: rgba(249, 115, 22, 0.3);
+  color: #fff;
+}
+
+/* === Focus ring === */
+:focus-visible {
+  outline: 2px solid #f97316;
+  outline-offset: 2px;
+  border-radius: 8px;
+}
