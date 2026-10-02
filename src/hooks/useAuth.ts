@@ -33,20 +33,22 @@ export function useAuth() {
   }, [supabase, setCurrentUser]);
 
   const signIn = useCallback(async (email: string) => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_APP_URL || '');
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+        emailRedirectTo: `${origin}/auth/callback`,
       },
     });
     if (error) throw error;
   }, [supabase]);
 
   const signInWithGoogle = useCallback(async () => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_APP_URL || '');
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+        redirectTo: `${origin}/auth/callback`,
       },
     });
     if (error) throw error;
