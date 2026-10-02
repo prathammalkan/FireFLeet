@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
 import { useStore } from '@/lib/store';
 import { useAuth } from './useAuth';
@@ -28,9 +28,9 @@ export function useTransactions() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         data.map((t: any) => ({
           id: t.id,
-          amount: t.amount,
+          amount: Number(t.amount), // ensure numeric — Supabase DECIMAL returns string
           category: t.category,
-          comment: t.comment,
+          comment: t.comment ?? null,
           created_at: t.created_at,
           userId: t.user_id,
           budgetId: t.budget_id,
@@ -39,11 +39,19 @@ export function useTransactions() {
     }
   }, [user, budget, supabase, setTransactions]);
 
+  // Bug #1 fix: fetch transactions whenever budget becomes available
+  useEffect(() => {
+    if (user && budget) {
+      fetchTransactions();
+    }
+  }, [user?.id, budget?.id]); // Only re-run when user or budget identity changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   const addTransaction = useCallback(
     async ({ amount, category, comment }: { amount: number; category: string; comment: string | null }) => {
       if (!user || !budget) return;
 
-      // Optimistic update
+      // Optimistic update — shows immediately in UI
       const tempId = generateId();
       const optimistic = {
         id: tempId,
@@ -57,27 +65,31 @@ export function useTransactions() {
       addTx(optimistic);
 
       // Persist to Supabase
-      const { data, error } = await supabase.from('transactions').insert({
-        user_id: user.id,
-        budget_id: budget.id,
-        amount,
-        category,
-        comment,
-      }).select().single();
+      const { data, error } = await supabase
+        .from('transactions')
+        .insert({
+          user_id: user.id,
+          budget_id: budget.id,
+          amount,
+          category,
+          comment,
+        })
+        .select()
+        .single();
 
       if (error) {
-        // Rollback
+        // Rollback on failure
         deleteTx(tempId);
         throw error;
       }
 
-      // Replace temp with real
+      // Replace temp ID with real server ID
       deleteTx(tempId);
       addTx({
         id: data.id,
-        amount: data.amount,
+        amount: Number(data.amount),
         category: data.category,
-        comment: data.comment,
+        comment: data.comment ?? null,
         created_at: data.created_at,
         userId: data.user_id,
         budgetId: data.budget_id,
@@ -88,15 +100,20 @@ export function useTransactions() {
 
   const deleteTransaction = useCallback(
     async (id: string) => {
-      // Optimistic
+      // Optimistic — remove from UI immediately
       deleteTx(id);
-      const { error } = await supabase.from('transactions').delete().eq('id', id);
+      const { error } = await supabase
+        .from('transactions')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user?.id ?? ''); // RLS also enforces, but explicit for safety
+
       if (error) {
-        // Can't easily rollback without storing the item; just refetch
+        // Can't easily rollback without storing; refetch from server
         await fetchTransactions();
       }
     },
-    [supabase, deleteTx, fetchTransactions]
+    [user, supabase, deleteTx, fetchTransactions]
   );
 
   return { fetchTransactions, addTransaction, deleteTransaction };

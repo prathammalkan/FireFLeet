@@ -20,12 +20,6 @@ export function useBudget() {
   const setBudget = useStore((s) => s.setBudget);
   const budget = useStore((s) => s.budget);
 
-  // Fetch budget on mount
-  useEffect(() => {
-    if (!user || budget) return;
-    fetchBudget();
-  }, [user]);
-
   const fetchBudget = useCallback(async () => {
     if (!user) return;
     const today = new Date().toISOString().split('T')[0];
@@ -36,12 +30,12 @@ export function useBudget() {
       .gte('end_date', today)
       .order('created_at', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle(); // use maybeSingle — single() throws if 0 rows found
 
     if (!error && data) {
       setBudget({
         id: data.id,
-        amount: data.amount,
+        amount: Number(data.amount), // ensure numeric, Supabase returns string for DECIMAL
         currency: data.currency as Currency,
         periodType: data.period_type as PeriodType,
         startDate: data.start_date,
@@ -49,7 +43,14 @@ export function useBudget() {
         userId: data.user_id,
       });
     }
+    // If no active budget found, don't crash — budget stays null → user is shown setup card
   }, [user, supabase, setBudget]);
+
+  // Fetch budget on mount when user is available and no cached budget
+  useEffect(() => {
+    if (!user || budget) return;
+    fetchBudget();
+  }, [user, budget, fetchBudget]); // ← all deps included (Bug #2 fix)
 
   const createBudget = useCallback(
     async (params: CreateBudgetParams) => {
@@ -70,7 +71,7 @@ export function useBudget() {
       if (error) throw error;
       setBudget({
         id: data.id,
-        amount: data.amount,
+        amount: Number(data.amount),
         currency: data.currency as Currency,
         periodType: data.period_type as PeriodType,
         startDate: data.start_date,

@@ -1,41 +1,44 @@
 {
-  "name": "FireFleet - Budget Tracker",
+  "name": "FireFleet — Plan Your Wealth",
   "short_name": "FireFleet",
-  "description": "Plan your wealth. Track every expense.",
+  "description": "Track expenses, manage your budget, and stay on track. A beautiful personal finance tracker.",
   "start_url": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait-primary",
   "background_color": "#0a0a0f",
   "theme_color": "#f97316",
-  "orientation": "portrait-primary",
-  "scope": "/",
   "lang": "en",
+  "scope": "/",
   "categories": ["finance", "productivity"],
   "icons": [
-    { "src": "/icons/icon-72x72.png", "sizes": "72x72", "type": "image/png", "purpose": "maskable any" },
-    { "src": "/icons/icon-96x96.png", "sizes": "96x96", "type": "image/png", "purpose": "maskable any" },
-    { "src": "/icons/icon-128x128.png", "sizes": "128x128", "type": "image/png", "purpose": "maskable any" },
-    { "src": "/icons/icon-144x144.png", "sizes": "144x144", "type": "image/png", "purpose": "maskable any" },
-    { "src": "/icons/icon-152x152.png", "sizes": "152x152", "type": "image/png", "purpose": "maskable any" },
-    { "src": "/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable any" },
-    { "src": "/icons/icon-384x384.png", "sizes": "384x384", "type": "image/png", "purpose": "maskable any" },
-    { "src": "/icons/icon-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable any" }
-  ],
-  "screenshots": [
-    {
-      "src": "/screenshots/dashboard.png",
-      "sizes": "390x844",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "FireFleet Dashboard"
-    }
+    { "src": "/icons/icon-72x72.svg",  "sizes": "72x72",   "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icons/icon-96x96.svg",  "sizes": "96x96",   "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icons/icon-128x128.svg","sizes": "128x128", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icons/icon-144x144.svg","sizes": "144x144", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icons/icon-152x152.svg","sizes": "152x152", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icons/icon-192x192.svg","sizes": "192x192", "type": "image/svg+xml", "purpose": "any maskable" },
+    { "src": "/icons/icon-384x384.svg","sizes": "384x384", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icons/icon-512x512.svg","sizes": "512x512", "type": "image/svg+xml", "purpose": "any maskable" }
   ],
   "shortcuts": [
     {
       "name": "Add Expense",
       "short_name": "Add",
-      "description": "Quickly add a new expense",
+      "description": "Log a new expense quickly",
       "url": "/?action=add",
-      "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
+      "icons": [{ "src": "/icons/icon-96x96.svg", "sizes": "96x96" }]
     }
-  ]
+  ],
+  "screenshots": [
+    {
+      "src": "/icons/icon-512x512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "form_factor": "narrow",
+      "label": "FireFleet Dashboard"
+    }
+  ],
+  "prefer_related_applications": false,
+  "related_applications": []
 }

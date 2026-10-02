@@ -10,16 +10,12 @@ const geist = Geist({
 
 export const metadata: Metadata = {
   title: "FireFleet — Plan Your Wealth",
-  description: "Track expenses, manage your budget, and stay on track. A beautiful finance tracker built for everyone.",
+  description: "Track expenses, manage your budget, and stay on track. A beautiful finance tracker.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
     title: "FireFleet",
-    startupImage: [
-      { url: "/splash/splash-750x1334.png", media: "(device-width: 375px) and (device-height: 667px)" },
-      { url: "/splash/splash-1170x2532.png", media: "(device-width: 390px) and (device-height: 844px)" },
-    ],
   },
   other: {
     "mobile-web-app-capable": "yes",
@@ -28,8 +24,11 @@ export const metadata: Metadata = {
   },
   icons: {
     apple: [
-      { url: "/icons/icon-152x152.png", sizes: "152x152" },
       { url: "/icons/icon-192x192.png", sizes: "192x192" },
+    ],
+    icon: [
+      { url: "/icons/icon-192x192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512x512.png", sizes: "512x512", type: "image/png" },
     ],
   },
 };
@@ -38,8 +37,7 @@ export const viewport: Viewport = {
   themeColor: "#f97316",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // Removed maximumScale:1 and userScalable:false — they harm accessibility
   viewportFit: "cover",
 };
 
@@ -55,8 +53,10 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+        {/* Theme color for address bar */}
+        <meta name="theme-color" content="#f97316" />
       </head>
-      <body className="bg-[#0a0a0f] text-white font-sans antialiased overscroll-none">
+      <body className="bg-[#0a0a0f] text-white font-sans antialiased">
         {children}
       </body>
     </html>

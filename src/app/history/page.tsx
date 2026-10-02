@@ -32,9 +32,12 @@ export default function HistoryPage() {
   const total = filtered.reduce((s, t) => s + t.amount, 0);
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] pb-24">
+    <div className="min-h-screen bg-[#0a0a0f]" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 16px)' }}>
       {/* Header */}
-      <div className="pt-safe px-5 pt-4 pb-3 sticky top-0 bg-[#0a0a0f]/95 backdrop-blur-xl z-10 border-b border-[#1f1f2e]">
+      <div
+        className="px-5 pb-3 sticky top-0 bg-[#0a0a0f]/95 backdrop-blur-xl z-10 border-b border-[#1f1f2e]"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 16px)' }}
+      >
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-xl font-black text-white">History</h1>
           <motion.button

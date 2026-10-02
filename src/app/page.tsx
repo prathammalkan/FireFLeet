@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Plus, Flame } from 'lucide-react';
 import { BudgetDisplay } from '@/components/budget/BudgetDisplay';
@@ -17,8 +17,15 @@ import { groupTransactionsByDate } from '@/lib/utils';
 import { useTransactions } from '@/hooks/useTransactions';
 import { useBudget } from '@/hooks/useBudget';
 import { useAuth } from '@/hooks/useAuth';
-import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+
+// Greeting based on time of day
+function getGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'morning';
+  if (h < 17) return 'afternoon';
+  return 'evening';
+}
 
 export default function HomePage() {
   const [showAdd, setShowAdd] = useState(false);
@@ -28,14 +35,17 @@ export default function HomePage() {
   const transactions = useStore((s) => s.transactions);
   const { deleteTransaction } = useTransactions();
 
-  // Auto-register service worker
+  // useBudget hook handles its own fetching on mount
+  useBudget();
+
+  // Register service worker
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(console.error);
     }
   }, []);
 
-  // Redirect logic
+  // Auth-based redirect — only runs when loading is complete
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
@@ -44,39 +54,52 @@ export default function HomePage() {
     }
   }, [user, authLoading, router]);
 
+  // Show spinner while auth is resolving
   if (authLoading || !user) {
     return (
       <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-          className="w-10 h-10 rounded-full border-2 border-[#f97316] border-t-transparent"
-        />
+        <div className="flex flex-col items-center gap-4">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+            className="w-10 h-10 rounded-full border-2 border-[#f97316] border-t-transparent"
+          />
+          <p className="text-[#9ca3af] text-sm">Loading FireFleet…</p>
+        </div>
       </div>
     );
   }
 
+  // Show only last 3 date groups in "Recent" section
   const recentGroups = groupTransactionsByDate(transactions).slice(0, 3);
-  const todayTransactions = transactions.filter(
-    (t) => new Date(t.created_at).toDateString() === new Date().toDateString()
-  );
+  const displayName = user.email?.split('@')[0] ?? 'there';
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] pb-20">
+    // Bug #11: proper safe-area bottom padding
+    <div
+      className="min-h-screen bg-[#0a0a0f]"
+      style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 16px)' }}
+    >
       <OfflineBanner />
 
-      {/* Header */}
-      <div className="pt-safe px-5 pt-4 flex items-center justify-between">
+      {/* Header — Bug #8: correct safe area top padding */}
+      <div
+        className="px-5 flex items-center justify-between"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 16px)' }}
+      >
         <div>
           <p className="text-[#9ca3af] text-sm">Good {getGreeting()},</p>
-          <h1 className="text-xl font-bold text-white">{user.email?.split('@')[0]}</h1>
+          <h1 className="text-xl font-bold text-white capitalize">{displayName}</h1>
         </div>
-        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#f97316] to-[#ea580c] flex items-center justify-center">
+        <motion.div
+          className="w-10 h-10 rounded-full bg-gradient-to-br from-[#f97316] to-[#ea580c] flex items-center justify-center shadow-lg shadow-orange-500/30"
+          whileTap={{ scale: 0.9 }}
+        >
           <Flame className="w-5 h-5 text-white" />
-        </div>
+        </motion.div>
       </div>
 
-      {/* Budget display */}
+      {/* Budget display / no-budget prompt */}
       {budget ? (
         <BudgetDisplay />
       ) : (
@@ -93,7 +116,7 @@ export default function HomePage() {
               onClick={() => router.push('/history')}
               className="text-[#f97316] text-sm font-semibold"
             >
-              See all
+              See all →
             </motion.button>
           )}
         </div>
@@ -122,21 +145,22 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* FAB */}
+      {/* FAB — Bug #9: consistent bottom positioning with nav */}
       <motion.button
-        whileTap={{ scale: 0.9 }}
-        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.88 }}
+        whileHover={{ scale: 1.06 }}
         onClick={() => setShowAdd(true)}
-        className="fixed bottom-24 right-5 w-16 h-16 rounded-full bg-gradient-to-br from-[#f97316] to-[#ea580c] shadow-2xl shadow-orange-500/40 flex items-center justify-center z-30"
-        style={{ bottom: 'calc(80px + env(safe-area-inset-bottom))' }}
+        className="fixed right-5 w-16 h-16 rounded-full bg-gradient-to-br from-[#f97316] to-[#ea580c] shadow-2xl shadow-orange-500/40 flex items-center justify-center z-30"
+        style={{ bottom: 'calc(64px + env(safe-area-inset-bottom) + 20px)' }}
+        aria-label="Add expense"
       >
-        {/* Pulse ring */}
+        {/* Animated pulse ring */}
         <motion.div
-          className="absolute inset-0 rounded-full bg-[#f97316]/40"
-          animate={{ scale: [1, 1.5], opacity: [0.6, 0] }}
-          transition={{ duration: 1.8, repeat: Infinity, ease: 'easeOut' }}
+          className="absolute inset-0 rounded-full bg-[#f97316]/35"
+          animate={{ scale: [1, 1.55], opacity: [0.5, 0] }}
+          transition={{ duration: 2, repeat: Infinity, ease: 'easeOut' }}
         />
-        <Plus className="w-7 h-7 text-white" strokeWidth={2.5} />
+        <Plus className="w-7 h-7 text-white relative z-10" strokeWidth={2.5} />
       </motion.button>
 
       <AddExpenseSheet isOpen={showAdd} onClose={() => setShowAdd(false)} />
@@ -146,29 +170,23 @@ export default function HomePage() {
   );
 }
 
-function getGreeting() {
-  const h = new Date().getHours();
-  if (h < 12) return 'morning';
-  if (h < 17) return 'afternoon';
-  return 'evening';
-}
-
 function NoBudgetCard({ onSetup }: { onSetup: () => void }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
+      transition={{ type: 'spring', stiffness: 280, damping: 28 }}
       className="mx-5 mt-6 p-6 rounded-3xl bg-gradient-to-br from-[#f97316]/10 to-[#ea580c]/5 border border-[#f97316]/20"
     >
       <p className="text-5xl mb-3">🎯</p>
-      <h2 className="text-xl font-bold text-white mb-1">No budget set</h2>
-      <p className="text-[#9ca3af] text-sm mb-5">Set a budget to start tracking your expenses.</p>
+      <h2 className="text-xl font-bold text-white mb-1">No budget yet</h2>
+      <p className="text-[#9ca3af] text-sm mb-5">Set your spending limit to start tracking.</p>
       <motion.button
-        whileTap={{ scale: 0.97 }}
+        whileTap={{ scale: 0.96 }}
         onClick={onSetup}
         className="px-6 py-3 rounded-2xl bg-gradient-to-r from-[#f97316] to-[#ea580c] text-white font-bold shadow-lg shadow-orange-500/25"
       >
-        Set Budget
+        Set Budget →
       </motion.button>
     </motion.div>
   );
@@ -179,23 +197,23 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="text-center py-12"
+      className="text-center py-14"
     >
       <motion.div
-        animate={{ y: [0, -8, 0] }}
-        transition={{ duration: 2.5, repeat: Infinity }}
-        className="text-5xl mb-4"
+        animate={{ y: [0, -10, 0] }}
+        transition={{ duration: 2.8, repeat: Infinity, ease: 'easeInOut' }}
+        className="text-6xl mb-4"
       >
         💸
       </motion.div>
-      <p className="text-white font-semibold">No expenses yet</p>
-      <p className="text-[#9ca3af] text-sm mt-1 mb-6">Tap + to log your first expense</p>
+      <p className="text-white font-semibold text-lg">Nothing logged yet</p>
+      <p className="text-[#9ca3af] text-sm mt-1 mb-7">Tap + to record your first expense</p>
       <motion.button
-        whileTap={{ scale: 0.95 }}
+        whileTap={{ scale: 0.94 }}
         onClick={onAdd}
         className="px-6 py-3 rounded-2xl border border-[#f97316]/40 text-[#f97316] font-semibold text-sm"
       >
-        Add Expense
+        Add First Expense
       </motion.button>
     </motion.div>
   );
