@@ -2,12 +2,14 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogOut, Download, RefreshCw, Moon, Sun, ChevronRight, User } from 'lucide-react';
+import { LogOut, Download, RefreshCw, Moon, Sun, ChevronRight, User, TrendingUp } from 'lucide-react';
 import { Navigation } from '@/components/ui/Navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { useStore } from '@/lib/store';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/utils';
+import { AddToBudgetSheet } from '@/components/budget/AddToBudgetSheet';
+
 
 export default function SettingsPage() {
   const { user, signOut } = useAuth();
@@ -19,7 +21,9 @@ export default function SettingsPage() {
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [showTopUp, setShowTopUp] = useState(false);
   const supabase = getSupabaseBrowserClient();
+
 
   async function handleSignOut() {
     setLoggingOut(true);
@@ -108,8 +112,14 @@ export default function SettingsPage() {
             <SettingsRow label="Currency" value={budget.currency} />
             <SettingsRow label="Period" value={budget.periodType.charAt(0).toUpperCase() + budget.periodType.slice(1)} />
             <SettingsRow label="Transactions" value={`${transactions.length}`} />
+            <ActionRow
+              icon={<TrendingUp className="w-4 h-4" />}
+              label="Add to Budget"
+              onClick={() => setShowTopUp(true)}
+            />
           </SettingsSection>
         )}
+
 
         {/* Theme toggle */}
         <SettingsSection title="Appearance">
@@ -163,6 +173,7 @@ export default function SettingsPage() {
       </div>
 
       <Navigation />
+      <AddToBudgetSheet isOpen={showTopUp} onClose={() => setShowTopUp(false)} />
     </div>
   );
 }

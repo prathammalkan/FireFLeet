@@ -20,7 +20,12 @@
 *, *::before, *::after {
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
-  /* Allow native scroll momentum everywhere */
+}
+
+/* CRITICAL PERF: touch-action:manipulation removes the 300ms tap delay
+   on ALL interactive elements without any JavaScript library */
+button, a, [role="button"], input, select, textarea, label {
+  touch-action: manipulation;
 }
 
 html {

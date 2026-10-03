@@ -2,21 +2,22 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useState, useEffect, useCallback } from 'react';
-import { motion } from 'motion/react';
-import { Plus, Flame } from 'lucide-react';
+import { useState, useCallback, useEffect, useRef, Suspense } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Plus, Flame, TrendingUp, Wallet } from 'lucide-react';
 import { BudgetDisplay } from '@/components/budget/BudgetDisplay';
 import { AddExpenseSheet } from '@/components/budget/AddExpenseSheet';
+import { AddToBudgetSheet } from '@/components/budget/AddToBudgetSheet';
 import { TransactionItem } from '@/components/budget/TransactionItem';
 import { Navigation } from '@/components/ui/Navigation';
 import { InstallPrompt } from '@/components/pwa/InstallPrompt';
 import { OfflineBanner } from '@/components/pwa/OfflineBanner';
 import { useStore } from '@/lib/store';
-import { groupTransactionsByDate } from '@/lib/utils';
+import { groupTransactionsByDate, formatCurrency } from '@/lib/utils';
 import { useTransactions } from '@/hooks/useTransactions';
 import { useBudget } from '@/hooks/useBudget';
 import { useAuth } from '@/hooks/useAuth';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -25,39 +26,70 @@ function getGreeting() {
   return 'evening';
 }
 
-export default function HomePage() {
+// SearchParams must be in a Suspense boundary — isolated component
+function SearchParamsHandler({ onAddAction }: { onAddAction: () => void }) {
+  const searchParams = useSearchParams();
+  const budget = useStore((s) => s.budget);
+  useEffect(() => {
+    if (searchParams?.get('action') === 'add' && budget) {
+      onAddAction();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [budget?.id]);
+  return null;
+}
+
+function HomeContent() {
   const [showAdd, setShowAdd] = useState(false);
+  const [showTopUp, setShowTopUp] = useState(false);
+  const [fabOpen, setFabOpen] = useState(false);
+  const fabRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+
   const { user, loading: authLoading } = useAuth();
   const budget = useStore((s) => s.budget);
   const transactions = useStore((s) => s.transactions);
   const { deleteTransaction } = useTransactions();
-
   useBudget();
 
-  // Register SW once
+  // Register SW once, non-blocking
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
   }, []);
 
+  // Auth redirect
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
       const onboarded = localStorage.getItem('ff-onboarded');
-      router.replace(onboarded ? '/auth' : '/onboarding'); // replace not push = no back-nav to loading
+      router.replace(onboarded ? '/auth' : '/onboarding');
     }
   }, [user, authLoading, router]);
 
-  const openAdd = useCallback(() => setShowAdd(true), []);
+  // Close FAB menu on outside click
+  useEffect(() => {
+    if (!fabOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (fabRef.current && !fabRef.current.contains(e.target as Node)) {
+        setFabOpen(false);
+      }
+    }
+    document.addEventListener('pointerdown', handleClick);
+    return () => document.removeEventListener('pointerdown', handleClick);
+  }, [fabOpen]);
+
+  const openAdd = useCallback(() => { setFabOpen(false); setShowAdd(true); }, []);
   const closeAdd = useCallback(() => setShowAdd(false), []);
+  const openTopUp = useCallback(() => { setFabOpen(false); setShowTopUp(true); }, []);
+  const closeTopUp = useCallback(() => setShowTopUp(false), []);
 
   if (authLoading || !user) {
     return (
       <div className="page-root flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-9 h-9 rounded-full border-2 border-[#f97316] border-t-transparent animate-spin-slow" />
+          <div className="w-10 h-10 rounded-full border-2 border-[#f97316] border-t-transparent animate-spin-slow" />
           <p className="text-[#9ca3af] text-sm">Loading…</p>
         </div>
       </div>
@@ -66,15 +98,18 @@ export default function HomePage() {
 
   const recentGroups = groupTransactionsByDate(transactions).slice(0, 3);
   const displayName = (user.email?.split('@')[0] ?? 'there').slice(0, 18);
-
-  // Navigation height + safe area bottom
   const navBottom = 'calc(64px + env(safe-area-inset-bottom, 0px))';
 
   return (
     <div
       className="page-root overflow-y-auto scroll-container"
-      style={{ paddingBottom: `calc(${navBottom} + 16px)` }}
+      style={{ paddingBottom: `calc(${navBottom} + 80px)` }}
     >
+      {/* Suspense-wrapped search params handler (for PWA shortcut ?action=add) */}
+      <Suspense fallback={null}>
+        <SearchParamsHandler onAddAction={openAdd} />
+      </Suspense>
+
       <OfflineBanner />
 
       {/* Header */}
@@ -83,25 +118,29 @@ export default function HomePage() {
         style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}
       >
         <div>
-          <p className="text-[#9ca3af] text-sm">Good {getGreeting()},</p>
-          <h1 className="text-xl font-bold text-white capitalize">{displayName}</h1>
+          <p className="text-[#9ca3af] text-sm leading-none mb-0.5">Good {getGreeting()},</p>
+          <h1 className="text-2xl font-black text-white capitalize leading-none">{displayName}</h1>
         </div>
-        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#f97316] to-[#ea580c] flex items-center justify-center">
-          <Flame className="w-5 h-5 text-white" />
+        <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#f97316] to-[#ea580c] flex items-center justify-center shadow-lg shadow-orange-500/20">
+          <Flame className="w-6 h-6 text-white" />
         </div>
       </div>
 
       {/* Budget */}
-      {budget ? <BudgetDisplay /> : <NoBudgetCard onSetup={() => router.push('/setup')} />}
+      {budget ? (
+        <BudgetDisplay />
+      ) : (
+        <NoBudgetCard onSetup={() => router.push('/setup')} />
+      )}
 
-      {/* Recent */}
-      <div className="px-5 mt-2">
+      {/* Recent transactions */}
+      <div className="px-5 mt-1">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-bold text-white">Recent</h2>
+          <h2 className="font-bold text-white text-base">Recent</h2>
           {transactions.length > 0 && (
             <button
               onClick={() => router.push('/history')}
-              className="text-[#f97316] text-sm font-semibold active:opacity-70"
+              className="text-[#f97316] text-sm font-semibold active:opacity-60 transition-opacity"
             >
               See all →
             </button>
@@ -114,8 +153,11 @@ export default function HomePage() {
           <div className="flex flex-col gap-2">
             {recentGroups.map((group) => (
               <div key={group.date}>
-                <p className="text-xs font-semibold text-[#9ca3af] uppercase tracking-wider mb-2">
+                <p className="text-[11px] font-bold text-[#9ca3af] uppercase tracking-wider mb-2">
                   {group.label}
+                  <span className="ml-2 font-semibold normal-case text-[#6b7280]">
+                    · {formatCurrency(group.total, budget?.currency ?? 'INR')}
+                  </span>
                 </p>
                 {group.transactions.map((t) => (
                   <div key={t.id} className="mb-2">
@@ -132,21 +174,89 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* FAB — CSS pulse ring, no JS animation on the ring */}
-      <button
-        onClick={openAdd}
-        className="fixed right-5 w-16 h-16 rounded-full bg-gradient-to-br from-[#f97316] to-[#ea580c] flex items-center justify-center z-30 active:scale-90 transition-transform duration-100 gpu"
+      {/* ── Expandable FAB ─────────────────────────────────────────────── */}
+      <div
+        ref={fabRef}
+        className="fixed right-5 z-30 flex flex-col-reverse items-end gap-3"
         style={{ bottom: `calc(${navBottom} + 20px)` }}
-        aria-label="Add expense"
       >
-        <span className="animate-pulse-ring" />
-        <Plus className="w-7 h-7 text-white relative z-10" strokeWidth={2.5} />
-      </button>
+        <AnimatePresence>
+          {fabOpen && (
+            <>
+              {/* Top-up budget */}
+              <motion.div
+                key="topup"
+                initial={{ opacity: 0, y: 10, scale: 0.85 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.85 }}
+                transition={{ duration: 0.15, delay: 0.05 }}
+                className="flex items-center gap-2"
+              >
+                <span className="bg-[#13131a] border border-[#1f1f2e] text-white text-xs font-semibold px-3 py-1.5 rounded-xl shadow-lg">
+                  Top-up Budget
+                </span>
+                <button
+                  onPointerDown={openTopUp}
+                  className="w-12 h-12 rounded-full bg-[#22c55e] flex items-center justify-center shadow-lg shadow-green-500/25 active:scale-90 transition-transform gpu"
+                  aria-label="Add to budget"
+                >
+                  <Wallet className="w-5 h-5 text-white" />
+                </button>
+              </motion.div>
+
+              {/* Add expense */}
+              <motion.div
+                key="expense"
+                initial={{ opacity: 0, y: 10, scale: 0.85 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.85 }}
+                transition={{ duration: 0.15 }}
+                className="flex items-center gap-2"
+              >
+                <span className="bg-[#13131a] border border-[#1f1f2e] text-white text-xs font-semibold px-3 py-1.5 rounded-xl shadow-lg">
+                  Add Expense
+                </span>
+                <button
+                  onPointerDown={openAdd}
+                  className="w-12 h-12 rounded-full bg-[#f97316] flex items-center justify-center shadow-lg shadow-orange-500/25 active:scale-90 transition-transform gpu"
+                  aria-label="Add expense"
+                >
+                  <TrendingUp className="w-5 h-5 text-white" />
+                </button>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+
+        {/* Main FAB */}
+        <button
+          onPointerDown={() => setFabOpen((v) => !v)}
+          className="w-16 h-16 rounded-full bg-gradient-to-br from-[#f97316] to-[#ea580c] flex items-center justify-center shadow-xl shadow-orange-500/30 active:scale-90 transition-transform duration-100 gpu relative"
+          aria-label={fabOpen ? 'Close actions' : 'Open actions'}
+        >
+          {!fabOpen && <span className="animate-pulse-ring" />}
+          <motion.div
+            animate={{ rotate: fabOpen ? 45 : 0 }}
+            transition={{ duration: 0.15 }}
+          >
+            <Plus className="w-7 h-7 text-white relative z-10" strokeWidth={2.5} />
+          </motion.div>
+        </button>
+      </div>
 
       <AddExpenseSheet isOpen={showAdd} onClose={closeAdd} />
+      <AddToBudgetSheet isOpen={showTopUp} onClose={closeTopUp} />
       <Navigation />
       <InstallPrompt />
     </div>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={null}>
+      <HomeContent />
+    </Suspense>
   );
 }
 
@@ -168,10 +278,10 @@ function NoBudgetCard({ onSetup }: { onSetup: () => void }) {
 
 function EmptyState({ onAdd }: { onAdd: () => void }) {
   return (
-    <div className="text-center py-14 animate-fade-slide-up">
-      <div className="text-6xl mb-4 animate-float inline-block">💸</div>
+    <div className="text-center py-12 animate-fade-slide-up">
+      <div className="text-5xl mb-4 animate-float inline-block">💸</div>
       <p className="text-white font-semibold text-lg">Nothing logged yet</p>
-      <p className="text-[#9ca3af] text-sm mt-1 mb-7">Tap + to record your first expense</p>
+      <p className="text-[#9ca3af] text-sm mt-1 mb-6">Tap + to record your first expense</p>
       <button
         onClick={onAdd}
         className="px-6 py-3 rounded-2xl border border-[#f97316]/40 text-[#f97316] font-semibold text-sm active:opacity-70 transition-opacity"

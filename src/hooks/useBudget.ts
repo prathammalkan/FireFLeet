@@ -127,5 +127,33 @@ export function useBudget() {
     [user, supabase, setBudget]
   );
 
-  return { budget, fetchBudget, createBudget };
+  /**
+   * Top-up: add amount to existing budget total.
+   * Returns new confirmed amount from server.
+   */
+  const updateBudgetAmount = useCallback(
+    async (newAmount: number): Promise<number> => {
+      if (!user || !budget) throw new Error('Not authenticated');
+      if (!isFinite(newAmount) || newAmount <= 0 || newAmount > 9_999_999) {
+        throw new Error('Invalid amount');
+      }
+      const safeAmount = Math.round(newAmount * 100) / 100;
+
+      const { data, error } = await supabase
+        .from('budgets')
+        .update({ amount: safeAmount })
+        .eq('id', budget.id)
+        .eq('user_id', user.id)
+        .select('amount')
+        .single();
+
+      if (error) throw error;
+      const confirmed = Math.round(Number(data.amount) * 100) / 100;
+      setBudget({ ...budget, amount: confirmed });
+      return confirmed;
+    },
+    [user, budget, supabase, setBudget]
+  );
+
+  return { budget, fetchBudget, createBudget, updateBudgetAmount };
 }
