@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { motion } from 'motion/react';
 import { LogOut, Download, RefreshCw, Moon, Sun, ChevronRight, User } from 'lucide-react';
 import { Navigation } from '@/components/ui/Navigation';
 import { useAuth } from '@/hooks/useAuth';
@@ -22,39 +21,46 @@ export default function SettingsPage() {
   async function handleSignOut() {
     setLoggingOut(true);
     await signOut();
-    router.push('/auth');
+    router.replace('/auth');
   }
 
   function handleExport() {
+    if (transactions.length === 0) { alert('No transactions to export.'); return; }
     const rows = [
-      ['Date', 'Category', 'Amount', 'Comment'],
+      ['Date', 'Category', 'Amount', 'Currency', 'Comment'],
       ...transactions.map((t) => [
         new Date(t.created_at).toLocaleDateString(),
         t.category,
         t.amount.toString(),
+        budget?.currency ?? 'INR',
         t.comment ?? '',
       ]),
     ];
-    const csv = rows.map((r) => r.join(',')).join('\n');
+    const csv = rows.map((r) => r.map((cell) => `"${cell}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `firefleet-export-${Date.now()}.csv`;
+    a.download = `firefleet-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
 
+  const navBottom = 'calc(64px + env(safe-area-inset-bottom, 0px))';
+
   return (
-    <div className="min-h-screen bg-[#0a0a0f]" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 16px)' }}>
-      <div className="px-5 pb-4" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 16px)' }}>
+    <div
+      className="page-root overflow-y-auto scroll-container"
+      style={{ paddingBottom: `calc(${navBottom} + 16px)` }}
+    >
+      <div className="px-5 pb-4" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}>
         <h1 className="text-xl font-black text-white">Settings</h1>
       </div>
 
       <div className="px-5 flex flex-col gap-4">
         {/* Profile */}
         <div className="bg-[#13131a] border border-[#1f1f2e] rounded-3xl p-5 flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#f97316] to-[#ea580c] flex items-center justify-center">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#f97316] to-[#ea580c] flex items-center justify-center shrink-0">
             <User className="w-7 h-7 text-white" />
           </div>
           <div className="flex-1 min-w-0">
@@ -66,57 +72,45 @@ export default function SettingsPage() {
         {/* Budget info */}
         {budget && (
           <SettingsSection title="Budget">
-            <SettingsRow
-              label="Total budget"
-              value={formatCurrency(budget.amount, budget.currency)}
-            />
+            <SettingsRow label="Total budget" value={formatCurrency(budget.amount, budget.currency)} />
             <SettingsRow label="Currency" value={budget.currency} />
-            <SettingsRow
-              label="Period"
-              value={budget.periodType.charAt(0).toUpperCase() + budget.periodType.slice(1)}
-            />
-            <SettingsRow
-              label="Transactions"
-              value={`${transactions.length}`}
-            />
+            <SettingsRow label="Period" value={budget.periodType.charAt(0).toUpperCase() + budget.periodType.slice(1)} />
+            <SettingsRow label="Transactions" value={`${transactions.length}`} />
           </SettingsSection>
         )}
 
-        {/* Preferences */}
-        <SettingsSection title="Preferences">
+        {/* Theme toggle */}
+        <SettingsSection title="Appearance">
           <div className="flex items-center justify-between py-3">
             <div className="flex items-center gap-3">
               {theme === 'dark' ? <Moon className="w-4 h-4 text-[#9ca3af]" /> : <Sun className="w-4 h-4 text-[#9ca3af]" />}
               <span className="text-white font-medium">Dark mode</span>
             </div>
-            <motion.button
-              whileTap={{ scale: 0.9 }}
+            {/* CSS toggle — no JS animation overhead */}
+            <button
               onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              className={`w-12 h-6 rounded-full transition-colors ${theme === 'dark' ? 'bg-[#f97316]' : 'bg-[#1f1f2e]'}`}
+              className="relative w-12 h-6 rounded-full transition-colors duration-300"
+              style={{ background: theme === 'dark' ? '#f97316' : '#1f1f2e' }}
+              aria-label="Toggle dark mode"
             >
-              <motion.div
-                animate={{ x: theme === 'dark' ? 24 : 2 }}
-                transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                className="w-5 h-5 bg-white rounded-full shadow"
+              <div
+                className="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-300"
+                style={{ transform: theme === 'dark' ? 'translateX(26px)' : 'translateX(2px)' }}
               />
-            </motion.button>
+            </button>
           </div>
         </SettingsSection>
 
-        {/* Actions */}
+        {/* Data */}
         <SettingsSection title="Data">
-          <ActionRow
-            icon={<Download className="w-4 h-4" />}
-            label="Export to CSV"
-            onClick={handleExport}
-          />
+          <ActionRow icon={<Download className="w-4 h-4" />} label="Export to CSV" onClick={handleExport} />
           <ActionRow
             icon={<RefreshCw className="w-4 h-4" />}
             label="Reset budget"
             onClick={() => {
               if (confirm('Reset all data? This cannot be undone.')) {
                 reset();
-                router.push('/setup');
+                router.replace('/setup');
               }
             }}
             danger
@@ -124,15 +118,14 @@ export default function SettingsPage() {
         </SettingsSection>
 
         {/* Sign out */}
-        <motion.button
-          whileTap={{ scale: 0.97 }}
+        <button
           onClick={handleSignOut}
           disabled={loggingOut}
-          className="w-full h-14 rounded-2xl bg-[#ef4444]/10 border border-[#ef4444]/20 text-[#ef4444] font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+          className="w-full h-14 rounded-2xl bg-[#ef4444]/10 border border-[#ef4444]/20 text-[#ef4444] font-bold flex items-center justify-center gap-2 active:opacity-70 transition-opacity disabled:opacity-50"
         >
           <LogOut className="w-4 h-4" />
-          {loggingOut ? 'Signing out...' : 'Sign Out'}
-        </motion.button>
+          {loggingOut ? 'Signing out…' : 'Sign Out'}
+        </button>
 
         <p className="text-center text-[#4b5563] text-xs pb-2">FireFleet v1.0.0</p>
       </div>
@@ -145,7 +138,7 @@ export default function SettingsPage() {
 function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="bg-[#13131a] border border-[#1f1f2e] rounded-2xl overflow-hidden">
-      <p className="text-xs font-semibold text-[#9ca3af] uppercase tracking-wider px-4 pt-4 pb-2">{title}</p>
+      <p className="text-xs font-bold text-[#9ca3af] uppercase tracking-wider px-4 pt-4 pb-2">{title}</p>
       <div className="px-4 pb-2 divide-y divide-[#1f1f2e]">{children}</div>
     </div>
   );
@@ -160,18 +153,19 @@ function SettingsRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ActionRow({ icon, label, onClick, danger }: { icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean }) {
+function ActionRow({
+  icon, label, onClick, danger,
+}: { icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean }) {
   return (
-    <motion.button
-      whileTap={{ scale: 0.98 }}
+    <button
       onClick={onClick}
-      className="w-full flex items-center justify-between py-3"
+      className="w-full flex items-center justify-between py-3 active:opacity-70 transition-opacity"
     >
       <div className="flex items-center gap-3">
         <span className={danger ? 'text-[#ef4444]' : 'text-[#9ca3af]'}>{icon}</span>
         <span className={`font-medium ${danger ? 'text-[#ef4444]' : 'text-white'}`}>{label}</span>
       </div>
       <ChevronRight className="w-4 h-4 text-[#4b5563]" />
-    </motion.button>
+    </button>
   );
 }

@@ -3,16 +3,13 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
 
-  // Transpile motion package for correct bundling
+  // Required: motion package needs explicit transpilation for Turbopack
   transpilePackages: ["motion"],
 
   experimental: {
-    optimizePackageImports: ["lucide-react", "recharts"],
+    // Tree-shake icon and chart libraries to reduce bundle size
+    optimizePackageImports: ["lucide-react", "recharts", "motion"],
   },
-
-  // Force all pages to be dynamic — no static prerendering
-  // This is needed because Supabase client requires env vars at runtime
-  output: undefined,
 
   async headers() {
     return [
@@ -21,13 +18,30 @@ const nextConfig: NextConfig = {
         headers: [
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "DENY" },
+          // Allow SharedArrayBuffer for better performance on browsers that support it
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
         ],
       },
       {
+        // Service worker must never be cached by CDN
         source: "/sw.js",
         headers: [
           { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
           { key: "Content-Type", value: "application/javascript; charset=utf-8" },
+        ],
+      },
+      {
+        // Cache PWA manifest for 1 day
+        source: "/manifest.json",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=86400" },
+        ],
+      },
+      {
+        // Cache static icons for 30 days
+        source: "/icons/(.*)",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=2592000, immutable" },
         ],
       },
     ];

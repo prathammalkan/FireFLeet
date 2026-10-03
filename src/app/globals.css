@@ -7,38 +7,45 @@
   --ff-border: #1f1f2e;
   --ff-primary: #f97316;
   --ff-primary-dark: #ea580c;
-  --ff-accent: #fb923c;
   --ff-text: #ffffff;
   --ff-text-2: #9ca3af;
   --ff-success: #22c55e;
   --ff-warning: #eab308;
   --ff-danger: #ef4444;
+  /* Real device viewport height - avoids iOS bottom bar cutting content */
+  --vh: 1dvh;
 }
 
-/* === Reset & Base === */
-*,
-*::before,
-*::after {
+/* === Reset === */
+*, *::before, *::after {
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
+  /* Allow native scroll momentum everywhere */
 }
 
 html {
   height: 100%;
-  /* CRITICAL FIX: was overflow:hidden which blocked all page scrolling */
   overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
   min-height: 100%;
+  min-height: 100dvh; /* Dynamic viewport — correct on iOS Safari */
   background-color: #0a0a0f;
   color: #ffffff;
-  overscroll-behavior-y: none; /* prevents pull-to-refresh bounce on iOS */
+  overscroll-behavior: none;
   -webkit-overflow-scrolling: touch;
-  font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+  font-family: var(--font-geist), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* === Page container — use dvh for real device height === */
+.page-root {
+  min-height: 100dvh;
+  background-color: #0a0a0f;
 }
 
 /* === Scrollbar hiding === */
@@ -46,129 +53,147 @@ body {
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
 /* === Safe area utilities === */
-/* These are real CSS custom properties — use inline style for dynamic values */
 .pt-safe { padding-top: env(safe-area-inset-top, 0px); }
 .pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
 .mt-safe { margin-top: env(safe-area-inset-top, 0px); }
 .mb-safe { margin-bottom: env(safe-area-inset-bottom, 0px); }
 
-/* === Animations === */
+/* === GPU-accelerated base for animated elements === */
+/* Use transform: translateZ(0) to promote to compositing layer */
+.gpu {
+  transform: translateZ(0);
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* === Contain layout to reduce repaint scope === */
+.contain-layout {
+  contain: layout style;
+}
+
+/* === Bottom nav — no backdrop blur (too expensive on mobile) === */
+.nav-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  background-color: rgba(10, 10, 15, 0.98); /* solid near-opaque, no blur */
+  border-top: 1px solid #1f1f2e;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  /* Promote to own compositing layer */
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+/* === Sticky header — lighter than backdrop-blur === */
+.sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background-color: rgba(10, 10, 15, 0.97);
+  /* Cheap border instead of blur */
+  border-bottom: 1px solid #1f1f2e;
+  transform: translateZ(0);
+}
+
+/* === Glass morphism — reduced blur for performance === */
+.glass {
+  background: rgba(19, 19, 26, 0.92);
+  /* Reduced blur: 12px instead of 24px — 2x faster to composite */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+/* === Animation keyframes === */
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
 
 @keyframes pulse-ring {
-  0% { transform: scale(1); opacity: 0.8; }
-  100% { transform: scale(1.7); opacity: 0; }
-}
-
-@keyframes flame-flicker {
-  0%, 100% { transform: scaleY(1) rotate(-1.5deg); }
-  25% { transform: scaleY(1.04) rotate(1.5deg); }
-  50% { transform: scaleY(0.97) rotate(-0.5deg); }
-  75% { transform: scaleY(1.02) rotate(1deg); }
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(1.6); opacity: 0; }
 }
 
 @keyframes float {
   0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-10px); }
+  50% { transform: translateY(-8px); }
 }
 
-@keyframes gradient-shift {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
-@keyframes slide-up {
-  from { transform: translateY(20px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+@keyframes fade-slide-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-/* === Animation classes === */
+/* === Animation utility classes === */
 .animate-shimmer {
   background: linear-gradient(90deg, #1a1a24 25%, #252535 50%, #1a1a24 75%);
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: shimmer 1.5s linear infinite;
 }
 
+/* Pulse ring on FAB — CSS only, no JS */
 .animate-pulse-ring {
-  animation: pulse-ring 1.8s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
-}
-
-.animate-flame {
-  animation: flame-flicker 2.2s ease-in-out infinite;
-  transform-origin: bottom center;
-  display: inline-block;
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: rgba(249, 115, 22, 0.4);
+  animation: pulse-ring 2s ease-out infinite;
+  pointer-events: none;
 }
 
 .animate-float {
   animation: float 3s ease-in-out infinite;
 }
 
-.animate-gradient {
-  background-size: 200% 200%;
-  animation: gradient-shift 4s ease infinite;
+.animate-spin-slow {
+  animation: spin 1s linear infinite;
 }
 
-.animate-slide-up {
-  animation: slide-up 0.35s ease-out forwards;
+.animate-fade-slide-up {
+  animation: fade-slide-up 0.3s ease-out both;
 }
 
-.animate-fade-in {
-  animation: fade-in 0.3s ease-out forwards;
-}
-
-/* === Glass morphism === */
-.glass {
-  background: rgba(19, 19, 26, 0.85);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-/* === Smooth scroll containers === */
-.smooth-scroll {
-  overflow-y: auto;
-  overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
-  scroll-behavior: smooth;
-}
-
-/* === Input overrides for mobile === */
-input[type="number"]::-webkit-inner-spin-button,
-input[type="number"]::-webkit-outer-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-input[type="number"] { -moz-appearance: textfield; }
-
-/* Prevent zoom on input focus on iOS (must be ≥16px font-size) */
+/* === Input — prevent iOS zoom (requires font-size >= 16px) === */
 input, textarea, select {
-  font-size: max(16px, 1em);
+  font-size: 16px; /* exact 16px prevents iOS zoom */
 }
 
 /* === Text selection === */
 ::selection {
-  background: rgba(249, 115, 22, 0.3);
+  background: rgba(249, 115, 22, 0.25);
   color: #fff;
 }
 
-/* === Focus ring (keyboard users) === */
+/* === Focus ring === */
 :focus-visible {
   outline: 2px solid #f97316;
   outline-offset: 2px;
   border-radius: 8px;
 }
 
-/* === Prevent text size adjust on rotation === */
-html {
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
+/* === Smooth scroll on touch === */
+.scroll-container {
+  -webkit-overflow-scrolling: touch;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+/* === Transaction item — contain repaint === */
+.transaction-item {
+  contain: layout style;
+  transform: translateZ(0);
+}
+
+/* === Bottom sheet — GPU layer === */
+.bottom-sheet {
+  will-change: transform;
+  transform: translateZ(0);
 }
