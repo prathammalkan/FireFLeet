@@ -4,7 +4,8 @@ import { useCallback, useEffect } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
 import { useStore } from '@/lib/store';
 import { useAuth } from './useAuth';
-import { generateId } from '@/lib/utils';
+import { generateId, validateAmount, isValidCurrency } from '@/lib/utils';
+import type { Currency, PeriodType } from '@/lib/store';
 
 export function useTransactions() {
   const { user } = useAuth();
@@ -16,80 +17,105 @@ export function useTransactions() {
 
   const fetchTransactions = useCallback(async () => {
     if (!user || !budget) return;
+
+    // DAT-05 FIX: Verify this budget belongs to the current user before querying
+    if (budget.userId !== user.id) {
+      setTransactions([]);
+      return;
+    }
+
     const { data, error } = await supabase
       .from('transactions')
-      .select('*')
-      .eq('user_id', user.id)
+      .select('id, amount, category, comment, created_at, user_id, budget_id')
+      .eq('user_id', user.id)          // double-guard (RLS also enforces this)
       .eq('budget_id', budget.id)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(500);                     // safety cap — prevent memory DoS on huge accounts
 
     if (!error && data) {
       setTransactions(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        data.map((t: any) => ({
-          id: t.id,
-          amount: Number(t.amount), // ensure numeric — Supabase DECIMAL returns string
-          category: t.category,
-          comment: t.comment ?? null,
-          created_at: t.created_at,
-          userId: t.user_id,
-          budgetId: t.budget_id,
-        }))
+        data.map((t: any) => {
+          const amount = Number(t.amount);
+          return {
+            id: String(t.id),
+            amount: isFinite(amount) ? amount : 0,   // guard corrupt DB values
+            category: String(t.category || 'other'),
+            comment: t.comment ? String(t.comment).slice(0, 200) : null, // sanitize length
+            created_at: String(t.created_at),
+            userId: String(t.user_id),
+            budgetId: String(t.budget_id),
+          };
+        })
       );
     }
   }, [user, budget, supabase, setTransactions]);
 
-  // Bug #1 fix: fetch transactions whenever budget becomes available
+  // Fetch whenever user+budget identity changes
   useEffect(() => {
-    if (user && budget) {
-      fetchTransactions();
-    }
-  }, [user?.id, budget?.id]); // Only re-run when user or budget identity changes
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (user && budget) fetchTransactions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, budget?.id]);
 
   const addTransaction = useCallback(
-    async ({ amount, category, comment }: { amount: number; category: string; comment: string | null }) => {
-      if (!user || !budget) return;
+    async ({
+      amount,
+      category,
+      comment,
+    }: {
+      amount: number;
+      category: string;
+      comment: string | null;
+    }) => {
+      if (!user || !budget) throw new Error('Not authenticated');
 
-      // Optimistic update — shows immediately in UI
+      // DAT-04 FIX: Validate amount client-side before optimistic update
+      const amountError = validateAmount(amount);
+      if (amountError) throw new Error(amountError);
+
+      // Sanitize inputs
+      const safeCategory = String(category).slice(0, 50);
+      const safeComment = comment ? String(comment).trim().slice(0, 200) : null;
+      // Round to 2dp to prevent floating-point values reaching DB
+      const safeAmount = Math.round(amount * 100) / 100;
+
+      // Optimistic update
       const tempId = generateId();
       const optimistic = {
         id: tempId,
-        amount,
-        category,
-        comment,
+        amount: safeAmount,
+        category: safeCategory,
+        comment: safeComment,
         created_at: new Date().toISOString(),
         userId: user.id,
         budgetId: budget.id,
       };
       addTx(optimistic);
 
-      // Persist to Supabase
       const { data, error } = await supabase
         .from('transactions')
         .insert({
           user_id: user.id,
           budget_id: budget.id,
-          amount,
-          category,
-          comment,
+          amount: safeAmount,
+          category: safeCategory,
+          comment: safeComment,
         })
-        .select()
+        .select('id, amount, category, comment, created_at, user_id, budget_id')
         .single();
 
       if (error) {
-        // Rollback on failure
         deleteTx(tempId);
         throw error;
       }
 
-      // Replace temp ID with real server ID
+      // Replace temp with server record
       deleteTx(tempId);
       addTx({
         id: data.id,
-        amount: Number(data.amount),
-        category: data.category,
-        comment: data.comment ?? null,
+        amount: Math.round(Number(data.amount) * 100) / 100,
+        category: String(data.category),
+        comment: data.comment ? String(data.comment).slice(0, 200) : null,
         created_at: data.created_at,
         userId: data.user_id,
         budgetId: data.budget_id,
@@ -100,16 +126,20 @@ export function useTransactions() {
 
   const deleteTransaction = useCallback(
     async (id: string) => {
-      // Optimistic — remove from UI immediately
-      deleteTx(id);
+      if (!user) return;
+      const safeId = String(id);
+
+      // Optimistic removal
+      deleteTx(safeId);
+
       const { error } = await supabase
         .from('transactions')
         .delete()
-        .eq('id', id)
-        .eq('user_id', user?.id ?? ''); // RLS also enforces, but explicit for safety
+        .eq('id', safeId)
+        .eq('user_id', user.id);   // belt-and-suspenders on top of RLS
 
       if (error) {
-        // Can't easily rollback without storing; refetch from server
+        // Re-sync from server on failure
         await fetchTransactions();
       }
     },

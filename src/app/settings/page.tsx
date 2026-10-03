@@ -6,6 +6,7 @@ import { LogOut, Download, RefreshCw, Moon, Sun, ChevronRight, User } from 'luci
 import { Navigation } from '@/components/ui/Navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { useStore } from '@/lib/store';
+import { getSupabaseBrowserClient } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/utils';
 
 export default function SettingsPage() {
@@ -17,12 +18,43 @@ export default function SettingsPage() {
   const reset = useStore((s) => s.reset);
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const supabase = getSupabaseBrowserClient();
 
   async function handleSignOut() {
     setLoggingOut(true);
-    await signOut();
+    await signOut(); // signOut already calls reset() + clears localStorage
     router.replace('/auth');
   }
+
+  async function handleReset() {
+    if (!confirm('Reset all data? This permanently deletes your budget and all transactions from the server. This cannot be undone.')) return;
+    if (!user) return;
+    setResetting(true);
+    try {
+      // EDGE-05 FIX: Delete server data first, then clear local state
+      // Deleting the budget cascades to transactions via ON DELETE CASCADE
+      if (budget?.id) {
+        const { error } = await supabase
+          .from('budgets')
+          .delete()
+          .eq('id', budget.id)
+          .eq('user_id', user.id); // belt-and-suspenders
+        if (error) {
+          console.error('[Reset] Failed to delete budget:', error.message);
+          alert('Failed to reset data. Please try again.');
+          setResetting(false);
+          return;
+        }
+      }
+      reset();
+      router.replace('/setup');
+    } catch {
+      alert('Failed to reset data. Please try again.');
+      setResetting(false);
+    }
+  }
+
 
   function handleExport() {
     if (transactions.length === 0) { alert('No transactions to export.'); return; }
@@ -105,17 +137,17 @@ export default function SettingsPage() {
         <SettingsSection title="Data">
           <ActionRow icon={<Download className="w-4 h-4" />} label="Export to CSV" onClick={handleExport} />
           <ActionRow
-            icon={<RefreshCw className="w-4 h-4" />}
-            label="Reset budget"
-            onClick={() => {
-              if (confirm('Reset all data? This cannot be undone.')) {
-                reset();
-                router.replace('/setup');
-              }
-            }}
+            icon={
+              resetting
+                ? <div className="w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin-slow" />
+                : <RefreshCw className="w-4 h-4" />
+            }
+            label={resetting ? 'Resetting…' : 'Reset all data'}
+            onClick={handleReset}
             danger
           />
         </SettingsSection>
+
 
         {/* Sign out */}
         <button

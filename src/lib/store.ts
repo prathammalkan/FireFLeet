@@ -32,33 +32,35 @@ export interface Transaction {
   budgetId: string;
 }
 
-export interface User {
+export interface StoreUser {
   id: string;
   email: string;
   name?: string;
   avatarUrl?: string;
 }
 
+const DEFAULT_CATEGORIES: Category[] = [
+  { id: 'food',          name: 'Food',          emoji: '🍔', color: '#f97316' },
+  { id: 'transport',     name: 'Transport',     emoji: '🚗', color: '#3b82f6' },
+  { id: 'shopping',      name: 'Shopping',      emoji: '🛍️', color: '#a855f7' },
+  { id: 'entertainment', name: 'Entertainment', emoji: '🎬', color: '#ec4899' },
+  { id: 'health',        name: 'Health',        emoji: '💊', color: '#22c55e' },
+  { id: 'bills',         name: 'Bills',         emoji: '🧾', color: '#eab308' },
+  { id: 'travel',        name: 'Travel',        emoji: '✈️', color: '#06b6d4' },
+  { id: 'education',     name: 'Education',     emoji: '📚', color: '#8b5cf6' },
+  { id: 'other',         name: 'Other',         emoji: '💸', color: '#9ca3af' },
+];
+
 interface FireFleetState {
-  // Auth
-  currentUser: User | null;
+  currentUser: StoreUser | null;
   isOnboarded: boolean;
-
-  // Budget
   budget: Budget | null;
-
-  // Transactions
   transactions: Transaction[];
-
-  // Categories
   categories: Category[];
-
-  // UI state
   isLoading: boolean;
   theme: 'dark' | 'light';
 
-  // Actions
-  setCurrentUser: (user: User | null) => void;
+  setCurrentUser: (user: StoreUser | null) => void;
   setIsOnboarded: (val: boolean) => void;
   setBudget: (budget: Budget | null) => void;
   addTransaction: (transaction: Transaction) => void;
@@ -70,16 +72,6 @@ interface FireFleetState {
   setTheme: (theme: 'dark' | 'light') => void;
   reset: () => void;
 }
-
-const DEFAULT_CATEGORIES: Category[] = [
-  { id: 'food', name: 'Food', emoji: '🍔', color: '#f97316' },
-  { id: 'transport', name: 'Transport', emoji: '🚗', color: '#3b82f6' },
-  { id: 'shopping', name: 'Shopping', emoji: '🛍️', color: '#a855f7' },
-  { id: 'entertainment', name: 'Entertainment', emoji: '🎬', color: '#ec4899' },
-  { id: 'health', name: 'Health', emoji: '💊', color: '#22c55e' },
-  { id: 'bills', name: 'Bills', emoji: '🧾', color: '#eab308' },
-  { id: 'other', name: 'Other', emoji: '💸', color: '#9ca3af' },
-];
 
 const initialState = {
   currentUser: null,
@@ -100,13 +92,9 @@ export const useStore = create<FireFleetState>()(
       setIsOnboarded: (val) => set({ isOnboarded: val }),
       setBudget: (budget) => set({ budget }),
       addTransaction: (transaction) =>
-        set((state) => ({
-          transactions: [transaction, ...state.transactions],
-        })),
+        set((state) => ({ transactions: [transaction, ...state.transactions] })),
       deleteTransaction: (id) =>
-        set((state) => ({
-          transactions: state.transactions.filter((t) => t.id !== id),
-        })),
+        set((state) => ({ transactions: state.transactions.filter((t) => t.id !== id) })),
       updateTransaction: (id, updated) =>
         set((state) => ({
           transactions: state.transactions.map((t) =>
@@ -122,11 +110,16 @@ export const useStore = create<FireFleetState>()(
     {
       name: 'firefleet-storage',
       storage: createJSONStorage(() => localStorage),
+      // SEC-01 FIX: Only persist non-sensitive UI state.
+      // Budget is re-fetched from Supabase on every authenticated session.
+      // DO NOT persist budget — it contains financial data readable by anyone
+      // with localStorage access (e.g., shared devices, malicious extensions).
       partialize: (state) => ({
         isOnboarded: state.isOnboarded,
-        budget: state.budget,
-        categories: state.categories,
         theme: state.theme,
+        // budget intentionally excluded
+        // currentUser intentionally excluded
+        // transactions intentionally excluded (always fetched fresh)
       }),
     }
   )

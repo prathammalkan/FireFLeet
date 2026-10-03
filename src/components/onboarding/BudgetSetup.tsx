@@ -45,7 +45,12 @@ export function BudgetSetup() {
 
   async function handleCreate() {
     const amount = parseFloat(display);
-    if (!amount) return;
+
+    // DAT-03 FIX: Exhaustive client-side validation
+    if (!isFinite(amount) || isNaN(amount)) { setError('Please enter a valid amount.'); return; }
+    if (amount <= 0) { setError('Budget must be greater than zero.'); return; }
+    if (amount > 9_999_999) { setError('Budget cannot exceed ₹9,999,999.'); return; }
+
     setLoading(true);
     setError('');
     try {
@@ -55,15 +60,16 @@ export function BudgetSetup() {
       else endDate.setMonth(now.getMonth() + 1);
 
       await createBudget({
-        amount,
+        amount: Math.round(amount * 100) / 100, // normalize to 2dp
         currency,
         periodType: period,
         startDate: now.toISOString().split('T')[0],
         endDate: endDate.toISOString().split('T')[0],
       });
       router.replace('/');
-    } catch {
-      setError('Failed to create budget. Please try again.');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to create budget.';
+      setError(msg.includes('Invalid') ? msg : 'Failed to create budget. Please try again.');
       setLoading(false);
     }
   }

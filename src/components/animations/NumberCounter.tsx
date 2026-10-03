@@ -9,7 +9,6 @@ interface NumberCounterProps {
   prefix?: string;
   suffix?: string;
   decimals?: number;
-  duration?: number;
 }
 
 export function NumberCounter({
@@ -18,32 +17,32 @@ export function NumberCounter({
   prefix = '',
   suffix = '',
   decimals = 0,
-  duration = 1.2,
 }: NumberCounterProps) {
-  const motionValue = useMotionValue(value);
+  // Guard: never animate NaN/Infinity — show 0 instead
+  const safeValue = isFinite(value) && !isNaN(value) ? value : 0;
+
+  const motionValue = useMotionValue(safeValue);
   const springValue = useSpring(motionValue, {
-    stiffness: 80,
-    damping: 20,
-    duration,
+    stiffness: 60,   // softer spring = less CPU per frame
+    damping: 22,
   });
 
   const displayValue = useTransform(springValue, (v) => {
-    const formatted = v.toFixed(decimals);
-    const num = parseFloat(formatted);
-    return num.toLocaleString('en-IN', {
+    const safeV = isFinite(v) ? v : 0;
+    return safeV.toLocaleString('en-IN', {
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
     });
   });
 
-  const prevValue = useRef(value);
+  const prevValue = useRef(safeValue);
 
   useEffect(() => {
-    if (prevValue.current !== value) {
-      motionValue.set(value);
-      prevValue.current = value;
+    if (prevValue.current !== safeValue) {
+      motionValue.set(safeValue);
+      prevValue.current = safeValue;
     }
-  }, [value, motionValue]);
+  }, [safeValue, motionValue]);
 
   return (
     <span className={className}>

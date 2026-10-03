@@ -1,10 +1,13 @@
 'use client';
 
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
 import { useStore } from '@/lib/store';
 import { useAuth } from './useAuth';
+import { isValidCurrency } from '@/lib/utils';
 import type { Currency, PeriodType } from '@/lib/store';
+
+const VALID_PERIOD_TYPES: PeriodType[] = ['weekly', 'monthly', 'custom'];
 
 interface CreateBudgetParams {
   amount: number;
@@ -19,61 +22,103 @@ export function useBudget() {
   const supabase = getSupabaseBrowserClient();
   const setBudget = useStore((s) => s.setBudget);
   const budget = useStore((s) => s.budget);
+  const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchBudget = useCallback(async () => {
     if (!user) return;
     const today = new Date().toISOString().split('T')[0];
     const { data, error } = await supabase
       .from('budgets')
-      .select('*')
+      .select('id, amount, currency, period_type, start_date, end_date, user_id')
       .eq('user_id', user.id)
       .gte('end_date', today)
       .order('created_at', { ascending: false })
       .limit(1)
-      .maybeSingle(); // use maybeSingle — single() throws if 0 rows found
+      .maybeSingle();
 
-    if (!error && data) {
-      setBudget({
-        id: data.id,
-        amount: Number(data.amount), // ensure numeric, Supabase returns string for DECIMAL
-        currency: data.currency as Currency,
-        periodType: data.period_type as PeriodType,
-        startDate: data.start_date,
-        endDate: data.end_date,
-        userId: data.user_id,
-      });
+    if (error) {
+      console.error('[useBudget] fetch error:', error.message);
+      return;
     }
-    // If no active budget found, don't crash — budget stays null → user is shown setup card
+
+    if (data) {
+      // SEC-04 FIX: Validate all server values before trusting them
+      const currency = isValidCurrency(data.currency) ? data.currency : 'INR';
+      const periodType = VALID_PERIOD_TYPES.includes(data.period_type as PeriodType)
+        ? (data.period_type as PeriodType)
+        : 'monthly';
+      const amount = Number(data.amount);
+
+      if (!isFinite(amount) || amount <= 0) {
+        console.error('[useBudget] Invalid amount from server:', data.amount);
+        return;
+      }
+
+      setBudget({
+        id: String(data.id),
+        amount: Math.round(amount * 100) / 100,  // normalize to 2dp
+        currency,
+        periodType,
+        startDate: String(data.start_date),
+        endDate: String(data.end_date),
+        userId: String(data.user_id),
+      });
+    } else {
+      // No active budget — clear any stale cached budget
+      setBudget(null);
+    }
   }, [user, supabase, setBudget]);
 
-  // Fetch budget on mount when user is available and no cached budget
+  // Fetch on mount when user available and no budget cached
   useEffect(() => {
     if (!user || budget) return;
     fetchBudget();
-  }, [user, budget, fetchBudget]); // ← all deps included (Bug #2 fix)
+  }, [user, budget, fetchBudget]);
+
+  // EDGE-01 FIX: Refresh budget every 5 minutes to detect expiry at runtime
+  useEffect(() => {
+    if (!user) return;
+    refreshTimerRef.current = setInterval(fetchBudget, 5 * 60 * 1000);
+    return () => {
+      if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
+    };
+  }, [user, fetchBudget]);
 
   const createBudget = useCallback(
     async (params: CreateBudgetParams) => {
       if (!user) throw new Error('Not authenticated');
+
+      // Validate all params server-side too (DB constraints enforce), but be explicit
+      if (!isFinite(params.amount) || params.amount <= 0 || params.amount > 9_999_999) {
+        throw new Error('Invalid budget amount');
+      }
+      if (!isValidCurrency(params.currency)) throw new Error('Invalid currency');
+      if (!VALID_PERIOD_TYPES.includes(params.periodType)) throw new Error('Invalid period');
+
+      const safeAmount = Math.round(params.amount * 100) / 100;
+
       const { data, error } = await supabase
         .from('budgets')
         .insert({
           user_id: user.id,
-          amount: params.amount,
+          amount: safeAmount,
           currency: params.currency,
           period_type: params.periodType,
           start_date: params.startDate,
           end_date: params.endDate,
         })
-        .select()
+        .select('id, amount, currency, period_type, start_date, end_date, user_id')
         .single();
 
       if (error) throw error;
+
       setBudget({
         id: data.id,
-        amount: Number(data.amount),
-        currency: data.currency as Currency,
-        periodType: data.period_type as PeriodType,
+        amount: Math.round(Number(data.amount) * 100) / 100,
+        currency: isValidCurrency(data.currency) ? data.currency : 'INR',
+        periodType: VALID_PERIOD_TYPES.includes(data.period_type as PeriodType)
+          ? (data.period_type as PeriodType)
+          : 'monthly',
         startDate: data.start_date,
         endDate: data.end_date,
         userId: data.user_id,
