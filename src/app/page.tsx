@@ -1,16 +1,11 @@
 'use client';
 
-export const dynamic = 'force-dynamic';
-
-import { useState, useCallback, useEffect, useRef, Suspense } from 'react';
+import { useState, useCallback, useEffect, useRef, Suspense, lazy } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Plus, Flame, TrendingUp, Wallet } from 'lucide-react';
 import { BudgetDisplay } from '@/components/budget/BudgetDisplay';
-import { AddExpenseSheet } from '@/components/budget/AddExpenseSheet';
-import { AddToBudgetSheet } from '@/components/budget/AddToBudgetSheet';
 import { TransactionItem } from '@/components/budget/TransactionItem';
 import { Navigation } from '@/components/ui/Navigation';
-import { InstallPrompt } from '@/components/pwa/InstallPrompt';
 import { OfflineBanner } from '@/components/pwa/OfflineBanner';
 import { useStore } from '@/lib/store';
 import { groupTransactionsByDate, formatCurrency } from '@/lib/utils';
@@ -19,6 +14,21 @@ import { useBudget } from '@/hooks/useBudget';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter, useSearchParams } from 'next/navigation';
 
+// PERF: Lazy-load heavy sheets — they're hidden behind a FAB by default
+import dynamic from 'next/dynamic';
+const AddExpenseSheet = dynamic(
+  () => import('@/components/budget/AddExpenseSheet').then((m) => ({ default: m.AddExpenseSheet })),
+  { ssr: false }
+);
+const AddToBudgetSheet = dynamic(
+  () => import('@/components/budget/AddToBudgetSheet').then((m) => ({ default: m.AddToBudgetSheet })),
+  { ssr: false }
+);
+const InstallPrompt = dynamic(
+  () => import('@/components/pwa/InstallPrompt').then((m) => ({ default: m.InstallPrompt })),
+  { ssr: false }
+);
+
 function getGreeting() {
   const h = new Date().getHours();
   if (h < 12) return 'morning';
@@ -26,7 +36,7 @@ function getGreeting() {
   return 'evening';
 }
 
-// SearchParams must be in a Suspense boundary — isolated component
+// SearchParams must be in a Suspense boundary
 function SearchParamsHandler({ onAddAction }: { onAddAction: () => void }) {
   const searchParams = useSearchParams();
   const budget = useStore((s) => s.budget);
@@ -39,20 +49,52 @@ function SearchParamsHandler({ onAddAction }: { onAddAction: () => void }) {
   return null;
 }
 
+// Undo toast for deleted transactions
+function UndoToast({
+  message,
+  onUndo,
+  onDismiss,
+}: {
+  message: string;
+  onUndo: () => void;
+  onDismiss: () => void;
+}) {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, 5000);
+    return () => clearTimeout(t);
+  }, [onDismiss]);
+
+  return (
+    <div
+      className="fixed left-4 right-4 z-[60] flex items-center justify-between gap-3 bg-[#1a1a24] border border-[#1f1f2e] rounded-2xl px-4 py-3 shadow-xl animate-fade-slide-up"
+      style={{ bottom: 'calc(80px + env(safe-area-inset-bottom, 0px))' }}
+    >
+      <span className="text-white text-sm font-medium">{message}</span>
+      <button
+        onClick={onUndo}
+        className="text-[#f97316] text-sm font-bold shrink-0 active:opacity-70"
+      >
+        Undo
+      </button>
+    </div>
+  );
+}
+
 function HomeContent() {
   const [showAdd, setShowAdd] = useState(false);
   const [showTopUp, setShowTopUp] = useState(false);
   const [fabOpen, setFabOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
   const fabRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
   const { user, loading: authLoading } = useAuth();
   const budget = useStore((s) => s.budget);
   const transactions = useStore((s) => s.transactions);
-  const { deleteTransaction } = useTransactions();
+  const { deleteTransaction, restoreTransaction } = useTransactions();
   useBudget();
 
-  // Register SW once, non-blocking
+  // Register SW once
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
@@ -68,13 +110,11 @@ function HomeContent() {
     }
   }, [user, authLoading, router]);
 
-  // Close FAB menu on outside click
+  // Close FAB on outside tap
   useEffect(() => {
     if (!fabOpen) return;
     function handleClick(e: MouseEvent) {
-      if (fabRef.current && !fabRef.current.contains(e.target as Node)) {
-        setFabOpen(false);
-      }
+      if (fabRef.current && !fabRef.current.contains(e.target as Node)) setFabOpen(false);
     }
     document.addEventListener('pointerdown', handleClick);
     return () => document.removeEventListener('pointerdown', handleClick);
@@ -84,6 +124,35 @@ function HomeContent() {
   const closeAdd = useCallback(() => setShowAdd(false), []);
   const openTopUp = useCallback(() => { setFabOpen(false); setShowTopUp(true); }, []);
   const closeTopUp = useCallback(() => setShowTopUp(false), []);
+
+  // Soft delete with undo
+  const handleDelete = useCallback((id: string) => {
+    // Haptic feedback
+    navigator?.vibrate?.(10);
+
+    // Hide from UI immediately (optimistic)
+    deleteTransaction(id);
+
+    // Set a 5s timer before permanent deletion
+    const timer = setTimeout(() => {
+      setPendingDelete(null);
+      // Transaction is already deleted optimistically — no further action needed
+    }, 5000);
+
+    setPendingDelete({ id, timer });
+  }, [deleteTransaction]);
+
+  const handleUndo = useCallback(() => {
+    if (pendingDelete) {
+      clearTimeout(pendingDelete.timer);
+      restoreTransaction(pendingDelete.id);
+      setPendingDelete(null);
+    }
+  }, [pendingDelete, restoreTransaction]);
+
+  const dismissUndo = useCallback(() => {
+    setPendingDelete(null);
+  }, []);
 
   if (authLoading || !user) {
     return (
@@ -105,7 +174,6 @@ function HomeContent() {
       className="page-root overflow-y-auto scroll-container"
       style={{ paddingBottom: `calc(${navBottom} + 80px)` }}
     >
-      {/* Suspense-wrapped search params handler (for PWA shortcut ?action=add) */}
       <Suspense fallback={null}>
         <SearchParamsHandler onAddAction={openAdd} />
       </Suspense>
@@ -127,11 +195,7 @@ function HomeContent() {
       </div>
 
       {/* Budget */}
-      {budget ? (
-        <BudgetDisplay />
-      ) : (
-        <NoBudgetCard onSetup={() => router.push('/setup')} />
-      )}
+      {budget ? <BudgetDisplay /> : <NoBudgetCard onSetup={() => router.push('/setup')} />}
 
       {/* Recent transactions */}
       <div className="px-5 mt-1">
@@ -164,7 +228,7 @@ function HomeContent() {
                     <TransactionItem
                       transaction={t}
                       currency={budget?.currency ?? 'INR'}
-                      onDelete={deleteTransaction}
+                      onDelete={handleDelete}
                     />
                   </div>
                 ))}
@@ -174,16 +238,28 @@ function HomeContent() {
         )}
       </div>
 
+      {/* Undo toast */}
+      <AnimatePresence>
+        {pendingDelete && (
+          <UndoToast
+            message="Expense deleted"
+            onUndo={handleUndo}
+            onDismiss={dismissUndo}
+          />
+        )}
+      </AnimatePresence>
+
       {/* ── Expandable FAB ─────────────────────────────────────────────── */}
       <div
         ref={fabRef}
         className="fixed right-5 z-30 flex flex-col-reverse items-end gap-3"
         style={{ bottom: `calc(${navBottom} + 20px)` }}
+        role="group"
+        aria-label="Quick actions"
       >
         <AnimatePresence>
           {fabOpen && (
             <>
-              {/* Top-up budget */}
               <motion.div
                 key="topup"
                 initial={{ opacity: 0, y: 10, scale: 0.85 }}
@@ -196,7 +272,7 @@ function HomeContent() {
                   Top-up Budget
                 </span>
                 <button
-                  onPointerDown={openTopUp}
+                  onClick={openTopUp}
                   className="w-12 h-12 rounded-full bg-[#22c55e] flex items-center justify-center shadow-lg shadow-green-500/25 active:scale-90 transition-transform gpu"
                   aria-label="Add to budget"
                 >
@@ -204,7 +280,6 @@ function HomeContent() {
                 </button>
               </motion.div>
 
-              {/* Add expense */}
               <motion.div
                 key="expense"
                 initial={{ opacity: 0, y: 10, scale: 0.85 }}
@@ -217,7 +292,7 @@ function HomeContent() {
                   Add Expense
                 </span>
                 <button
-                  onPointerDown={openAdd}
+                  onClick={openAdd}
                   className="w-12 h-12 rounded-full bg-[#f97316] flex items-center justify-center shadow-lg shadow-orange-500/25 active:scale-90 transition-transform gpu"
                   aria-label="Add expense"
                 >
@@ -228,11 +303,11 @@ function HomeContent() {
           )}
         </AnimatePresence>
 
-        {/* Main FAB */}
         <button
-          onPointerDown={() => setFabOpen((v) => !v)}
+          onClick={() => setFabOpen((v) => !v)}
           className="w-16 h-16 rounded-full bg-gradient-to-br from-[#f97316] to-[#ea580c] flex items-center justify-center shadow-xl shadow-orange-500/30 active:scale-90 transition-transform duration-100 gpu relative"
           aria-label={fabOpen ? 'Close actions' : 'Open actions'}
+          aria-expanded={fabOpen}
         >
           {!fabOpen && <span className="animate-pulse-ring" />}
           <motion.div
@@ -254,7 +329,11 @@ function HomeContent() {
 
 export default function HomePage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={
+      <div className="page-root flex items-center justify-center">
+        <div className="w-10 h-10 rounded-full border-2 border-[#f97316] border-t-transparent animate-spin-slow" />
+      </div>
+    }>
       <HomeContent />
     </Suspense>
   );
@@ -279,7 +358,7 @@ function NoBudgetCard({ onSetup }: { onSetup: () => void }) {
 function EmptyState({ onAdd }: { onAdd: () => void }) {
   return (
     <div className="text-center py-12 animate-fade-slide-up">
-      <div className="text-5xl mb-4 animate-float inline-block">💸</div>
+      <div className="text-5xl mb-4 inline-block">💸</div>
       <p className="text-white font-semibold text-lg">Nothing logged yet</p>
       <p className="text-[#9ca3af] text-sm mt-1 mb-6">Tap + to record your first expense</p>
       <button

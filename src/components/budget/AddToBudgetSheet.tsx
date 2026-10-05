@@ -2,12 +2,12 @@
 
 import { useState, useCallback, memo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Delete, CheckCircle, AlertCircle, Plus, Wallet } from 'lucide-react';
+import { Delete, CheckCircle, AlertCircle, Plus } from 'lucide-react';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { useStore } from '@/lib/store';
 import { useBudget } from '@/hooks/useBudget';
-import { validateAmount, getCurrencySymbol, formatCurrency } from '@/lib/utils';
-import { cn } from '@/lib/utils';
+import { validateAmount, getCurrencySymbol, formatCurrency, cn } from '@/lib/utils';
+
 
 const NUMPAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', '⌫'];
 const QUICK_AMOUNTS = [500, 1000, 2000, 5000];

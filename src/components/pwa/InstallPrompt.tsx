@@ -59,7 +59,7 @@ export function InstallPrompt() {
           transition={{ type: 'spring', stiffness: 300, damping: 28 }}
           className="fixed bottom-24 left-4 right-4 z-50"
         >
-          <div className="glass rounded-3xl p-5 border border-[#f97316]/20 shadow-2xl shadow-orange-500/10">
+          <div className="bg-[#13131a]/97 border border-[#1f1f2e] rounded-3xl p-5 shadow-2xl shadow-orange-500/10">
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#f97316] to-[#ea580c] flex items-center justify-center text-2xl shadow-lg shadow-orange-500/30">
@@ -70,13 +70,12 @@ export function InstallPrompt() {
                   <p className="text-[#9ca3af] text-xs">Works offline · No app store needed</p>
                 </div>
               </div>
-              <motion.button
-                whileTap={{ scale: 0.9 }}
+              <button
                 onClick={dismiss}
-                className="w-7 h-7 rounded-full bg-[#1a1a24] flex items-center justify-center text-[#9ca3af]"
+                className="w-7 h-7 rounded-full bg-[#1a1a24] flex items-center justify-center text-[#9ca3af] active:scale-90 transition-transform"
               >
                 <X className="w-4 h-4" />
-              </motion.button>
+              </button>
             </div>
 
             {isIOS ? (
@@ -91,13 +90,12 @@ export function InstallPrompt() {
                 </p>
               </div>
             ) : (
-              <motion.button
-                whileTap={{ scale: 0.97 }}
+              <button
                 onClick={handleInstall}
-                className="w-full h-11 rounded-2xl bg-gradient-to-r from-[#f97316] to-[#ea580c] text-white font-bold shadow-lg shadow-orange-500/25"
+                className="w-full h-11 rounded-2xl bg-gradient-to-r from-[#f97316] to-[#ea580c] text-white font-bold shadow-lg shadow-orange-500/25 active:scale-90 transition-transform"
               >
                 Install App
-              </motion.button>
+              </button>
             )}
           </div>
         </motion.div>

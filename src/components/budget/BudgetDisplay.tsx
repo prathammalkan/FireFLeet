@@ -34,8 +34,9 @@ export const BudgetDisplay = memo(function BudgetDisplay() {
   const symbol = getCurrencySymbol(budget.currency);
   const isLow = percentage >= 75;
 
+  const todayStr = new Date().toISOString().slice(0, 10);
   const todaySpent = transactions
-    .filter((t) => new Date(t.created_at).toISOString().slice(0, 10) === new Date().toISOString().slice(0, 10))
+    .filter((t) => t.created_at.slice(0, 10) === todayStr)
     .reduce((s, t) => s + t.amount, 0);
 
   return (

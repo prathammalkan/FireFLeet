@@ -53,11 +53,16 @@ export const TransactionItem = memo(function TransactionItem({
           -{formatCurrency(transaction.amount, currency)}
         </p>
         <button
-          onClick={() => onDelete(transaction.id)}
-          className="w-8 h-8 rounded-xl bg-[#ef4444]/10 border border-[#ef4444]/20 flex items-center justify-center active:bg-[#ef4444]/25 transition-colors"
+          onClick={() => {
+            if (confirm('Delete this expense?')) {
+              navigator?.vibrate?.(10);
+              onDelete(transaction.id);
+            }
+          }}
+          className="w-10 h-10 rounded-xl bg-[#ef4444]/10 border border-[#ef4444]/20 flex items-center justify-center active:bg-[#ef4444]/25 transition-colors"
           aria-label="Delete expense"
         >
-          <Trash2 className="w-3.5 h-3.5 text-[#ef4444]" />
+          <Trash2 className="w-4 h-4 text-[#ef4444]" />
         </button>
       </div>
     </div>

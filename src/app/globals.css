@@ -103,12 +103,9 @@ body {
   transform: translateZ(0);
 }
 
-/* === Glass morphism — reduced blur for performance === */
+/* === Glass morphism — NO backdrop-filter (too expensive on mobile GPU) === */
 .glass {
-  background: rgba(19, 19, 26, 0.92);
-  /* Reduced blur: 12px instead of 24px — 2x faster to composite */
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(19, 19, 26, 0.97);
   border: 1px solid rgba(255, 255, 255, 0.07);
 }
 

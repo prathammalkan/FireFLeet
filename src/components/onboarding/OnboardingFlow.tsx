@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronRight } from 'lucide-react';
 
+import { useStore } from '@/lib/store';
+
 const SLIDES = [
   {
     emoji: '🔥',
@@ -30,6 +32,7 @@ export function OnboardingFlow() {
   const [index, setIndex] = useState(0);
   const [dir, setDir] = useState(1); // 1 = forward, -1 = back
   const router = useRouter();
+  const setIsOnboarded = useStore((s) => s.setIsOnboarded);
 
   const slide = SLIDES[index];
   const isLast = index === SLIDES.length - 1;
@@ -37,6 +40,7 @@ export function OnboardingFlow() {
   function next() {
     if (isLast) {
       localStorage.setItem('ff-onboarded', '1');
+      setIsOnboarded(true);
       router.replace('/auth');
     } else {
       setDir(1);
@@ -46,6 +50,7 @@ export function OnboardingFlow() {
 
   function skip() {
     localStorage.setItem('ff-onboarded', '1');
+    setIsOnboarded(true);
     router.replace('/auth');
   }
 

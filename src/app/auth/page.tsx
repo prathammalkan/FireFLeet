@@ -6,7 +6,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Mail, Flame, ArrowRight } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
-export const dynamic = 'force-dynamic';
 
 export default function AuthPage() {
   const [email, setEmail] = useState('');
@@ -116,6 +115,7 @@ export default function AuthPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="Enter your email"
+                    aria-label="Email address"
                     className="w-full h-14 bg-[#13131a] border border-[#1f1f2e] rounded-2xl pl-11 pr-4 text-white placeholder:text-[#4b5563] outline-none focus:border-[#f97316] transition-colors"
                     style={{ fontSize: 16 }}
                     required
@@ -142,7 +142,9 @@ export default function AuthPage() {
               </form>
 
               <p className="text-center text-[#4b5563] text-xs mt-6">
-                By continuing, you agree to our Terms of Service
+                By continuing, you agree to our{' '}
+                <a href="/terms" className="text-[#f97316] underline">Terms</a> &{' '}
+                <a href="/privacy" className="text-[#f97316] underline">Privacy Policy</a>
               </p>
             </motion.div>
           )}

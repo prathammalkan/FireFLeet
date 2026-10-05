@@ -6,11 +6,12 @@ import { useStore } from '@/lib/store';
 import { formatCurrency, getSpentAmount, getDaysLeft } from '@/lib/utils';
 import { CATEGORIES, getCategoryById } from '@/components/budget/CategoryPicker';
 import { Navigation } from '@/components/ui/Navigation';
+import { memo } from 'react';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
   Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { memo } from 'react';
+
 
 export default function AnalyticsPage() {
   useBudget();

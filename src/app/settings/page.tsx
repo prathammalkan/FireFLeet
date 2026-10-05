@@ -158,6 +158,24 @@ export default function SettingsPage() {
           />
         </SettingsSection>
 
+        {/* Legal */}
+        <SettingsSection title="Legal">
+          <ActionRow
+            icon={<ChevronRight className="w-4 h-4" />}
+            label="Privacy Policy"
+            onClick={() => router.push('/privacy')}
+          />
+          <ActionRow
+            icon={<ChevronRight className="w-4 h-4" />}
+            label="Terms of Service"
+            onClick={() => router.push('/terms')}
+          />
+          <ActionRow
+            icon={<ChevronRight className="w-4 h-4" />}
+            label="Licenses & Legal"
+            onClick={() => router.push('/legal')}
+          />
+        </SettingsSection>
 
         {/* Sign out */}
         <button
