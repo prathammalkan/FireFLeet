@@ -51,6 +51,7 @@ export default function HistoryPage() {
               setSearchOpen((v) => !v);
               if (searchOpen) setSearch('');
             }}
+            aria-label={searchOpen ? 'Close search' : 'Search expenses'}
             className="w-9 h-9 rounded-xl bg-[#13131a] border border-[#1f1f2e] flex items-center justify-center text-[#9ca3af] active:bg-[#1a1a24] transition-colors"
           >
             {searchOpen ? <X className="w-4 h-4" /> : <Search className="w-4 h-4" />}

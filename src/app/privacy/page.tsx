@@ -6,13 +6,24 @@ import { Navigation } from '@/components/ui/Navigation';
 
 export default function PrivacyPolicy() {
   const router = useRouter();
+  const navBottom = 'calc(64px + env(safe-area-inset-bottom, 0px))';
 
   return (
-    <div className="page-root bg-[#0a0a0f] min-h-screen text-white pb-[calc(env(safe-area-inset-bottom)+5rem)]">
-      <div className="scroll-container pt-safe-top px-4 pb-8">
-        <header className="flex items-center gap-3 mb-6 pt-4">
-          <button onClick={() => router.back()} className="p-2 -ml-2 text-[#9ca3af] hover:text-white transition-colors">
-            <ArrowLeft className="w-6 h-6" />
+    <div
+      className="page-root overflow-y-auto scroll-container"
+      style={{ paddingBottom: `calc(${navBottom} + 24px)` }}
+    >
+      <div
+        className="px-5 pb-6"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}
+      >
+        <header className="flex items-center gap-3 mb-6">
+          <button
+            onClick={() => router.back()}
+            className="w-9 h-9 rounded-xl bg-[#13131a] border border-[#1f1f2e] flex items-center justify-center text-[#9ca3af] active:text-white transition-colors"
+            aria-label="Back"
+          >
+            <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-2">
             <Shield className="w-6 h-6 text-[#f97316]" />

@@ -3,7 +3,7 @@
 // EDGE-03 FIX: Versioned cache name — update SW_VERSION on each deploy
 // SEC-02 FIX: Never cache navigation responses (HTML) — they contain auth-gated content
 
-const SW_VERSION = 'v3';
+const SW_VERSION = 'v4';
 const STATIC_CACHE = `firefleet-static-${SW_VERSION}`;
 const ASSET_CACHE = `firefleet-assets-${SW_VERSION}`;
 

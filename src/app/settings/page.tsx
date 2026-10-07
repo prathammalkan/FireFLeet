@@ -134,6 +134,7 @@ export default function SettingsPage() {
               className="relative w-12 h-6 rounded-full transition-colors duration-300"
               style={{ background: theme === 'dark' ? '#f97316' : '#1f1f2e' }}
               aria-label="Toggle dark mode"
+              aria-pressed={theme === 'dark'}
             >
               <div
                 className="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-300"
