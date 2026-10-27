@@ -30,7 +30,9 @@ The build can compile without local Supabase credentials, but authentication and
 
 ## Database migrations
 
-`supabase/migrations/001_initial_schema.sql` defines the budgets, transactions, and categories tables, constraints, indexes, triggers, and RLS policies. Review it against the intended Supabase project before applying it. Apply migrations through the Supabase SQL editor or the approved Supabase migration workflow; do not reset or run destructive SQL against production as a shortcut.
+`supabase/migrations/001_initial_schema.sql` defines the budgets, transactions, and categories tables, constraints, indexes, triggers, and RLS policies. `supabase/migrations/002_security_remediation.sql` is a separate upgrade for an existing schema: it fails closed when required objects, policies, event triggers, privileges, or data invariants differ from the expected model. Review both files against the intended Supabase project before applying them. Apply migrations through the Supabase SQL editor or the approved Supabase migration workflow; do not reset or run destructive SQL against production as a shortcut.
+
+PostgreSQL schema-specific default privileges cannot revoke a grant inherited from a global default privilege. Migration 002 therefore stops when `postgres` or `supabase_admin` has a global table default grant to `PUBLIC`, `anon`, or `authenticated`; removing that global grant would affect unrelated schemas and requires a separately reviewed owner action. When global defaults are safe, migration 002 revokes only the relevant `public`-schema defaults and verifies the result.
 
 Every user-owned table must retain RLS and policies that scope rows to `auth.uid()`.
 

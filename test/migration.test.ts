@@ -9,8 +9,13 @@ const migration = readFileSync(
 describe('Supabase security remediation migration', () => {
   it('fails closed before changing privileges when required invariants are absent', () => {
     expect(migration).toContain("rolname = 'service_role'");
+    expect(migration).toContain("'supabase_admin'");
+    expect(migration).toContain("Required column public.%.% with nullable=% is missing or incompatible");
     expect(migration).toContain("public.rls_auto_enable()'::regprocedure");
     expect(migration).toContain("evtname = 'ensure_rls'");
+    expect(migration).toContain("tgname = 'update_budgets_updated_at'");
+    expect(migration).toContain("tgname = 'update_transactions_updated_at'");
+    expect(migration).toContain('Unexpected policy exists on a FireFleet table');
     expect(migration).toContain('RAISE EXCEPTION');
     expect(migration).toContain('NOT VALID');
     expect(migration).toContain('VALIDATE CONSTRAINT');
@@ -21,9 +26,20 @@ describe('Supabase security remediation migration', () => {
     expect(migration).toContain('TO authenticated');
     expect(migration).toContain('TO service_role');
     expect(migration).toContain('SET search_path = pg_catalog, public');
+    expect(migration).toContain('pg_default_acl');
+    expect(migration).toContain('d.defaclnamespace = 0');
+    expect(migration).toContain('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public');
     expect(migration).toContain('idx_categories_user_id');
     expect(migration).toContain('(SELECT auth.uid())');
     expect(migration).toContain('b.user_id = (SELECT auth.uid())');
+  });
+
+  it('recognizes equivalent inline checks before adding named remediation checks', () => {
+    expect(migration).toContain('pg_get_constraintdef(oid) ILIKE');
+    expect(migration).toContain('Existing budgets_amount_range_check is incompatible');
+    expect(migration).toContain('Existing categories_color_format_check is incompatible');
+    expect(migration).toContain('ADD CONSTRAINT budgets_amount_range_check');
+    expect(migration).toContain('ADD CONSTRAINT categories_color_format_check');
   });
 
   it('contains no destructive row or table operations', () => {
