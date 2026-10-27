@@ -14,6 +14,7 @@ DECLARE
   expected RECORD;
   table_name TEXT;
   role_name TEXT;
+  creator_role TEXT;
 BEGIN
   IF to_regnamespace('public') IS NULL THEN
     RAISE EXCEPTION 'Required schema public is missing; remediation stopped';
@@ -200,6 +201,39 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Unsafe global table default privilege found for postgres or supabase_admin; remove it through a separately reviewed global policy change before remediation';
   END IF;
+
+  -- ALTER DEFAULT PRIVILEGES FOR ROLE requires the executing role to be that
+  -- role, a member of it, or a superuser. Do not discover this after earlier
+  -- statements have changed the database. If the migration role cannot act
+  -- for a creator, only a separately role-owned operation may remediate that
+  -- creator's public-schema defaults.
+  FOREACH creator_role IN ARRAY ARRAY['postgres', 'supabase_admin'] LOOP
+    IF NOT (
+      current_user = creator_role
+      OR pg_has_role(current_user, creator_role, 'MEMBER')
+      OR EXISTS (
+        SELECT 1 FROM pg_roles
+        WHERE rolname = current_user AND rolsuper
+      )
+    ) AND EXISTS (
+      SELECT 1
+      FROM pg_default_acl d
+      JOIN pg_roles owner_role ON owner_role.oid = d.defaclrole
+      CROSS JOIN LATERAL aclexplode(d.defaclacl) acl
+      LEFT JOIN pg_roles grantee_role ON grantee_role.oid = acl.grantee
+      JOIN pg_namespace schema_name ON schema_name.oid = d.defaclnamespace
+      WHERE d.defaclobjtype = 'r'
+        AND schema_name.nspname = 'public'
+        AND owner_role.rolname = creator_role
+        AND (
+          acl.grantee = 0
+          OR grantee_role.rolname IN ('anon', 'authenticated')
+        )
+    ) THEN
+      RAISE EXCEPTION 'Current role % cannot alter % default privileges; run the public-schema revoke as % or grant reviewed role membership, then rerun remediation',
+        current_user, creator_role, creator_role;
+    END IF;
+  END LOOP;
 END $$;
 
 -- ─── Preconditions: preserve privileged service access ────────────────────────
@@ -563,7 +597,14 @@ DECLARE
   creator_role TEXT;
 BEGIN
   FOREACH creator_role IN ARRAY ARRAY['postgres', 'supabase_admin'] LOOP
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = creator_role) THEN
+    IF (
+      current_user = creator_role
+      OR pg_has_role(current_user, creator_role, 'MEMBER')
+      OR EXISTS (
+        SELECT 1 FROM pg_roles
+        WHERE rolname = current_user AND rolsuper
+      )
+    ) THEN
       EXECUTE format(
         'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public REVOKE ALL PRIVILEGES ON TABLES FROM PUBLIC, anon, authenticated',
         creator_role

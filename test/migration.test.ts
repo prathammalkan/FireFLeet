@@ -5,6 +5,10 @@ const migration = readFileSync(
   resolve(process.cwd(), 'supabase/migrations/002_security_remediation.sql'),
   'utf8',
 );
+const deleteSemanticsMigration = readFileSync(
+  resolve(process.cwd(), 'supabase/migrations/003_budget_delete_semantics.sql'),
+  'utf8',
+);
 
 describe('Supabase security remediation migration', () => {
   it('fails closed before changing privileges when required invariants are absent', () => {
@@ -29,6 +33,8 @@ describe('Supabase security remediation migration', () => {
     expect(migration).toContain('pg_default_acl');
     expect(migration).toContain('d.defaclnamespace = 0');
     expect(migration).toContain('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public');
+    expect(migration).toContain('cannot alter % default privileges');
+    expect(migration).toContain("pg_has_role(current_user, creator_role, 'MEMBER')");
     expect(migration).toContain('idx_categories_user_id');
     expect(migration).toContain('(SELECT auth.uid())');
     expect(migration).toContain('b.user_id = (SELECT auth.uid())');
@@ -44,5 +50,14 @@ describe('Supabase security remediation migration', () => {
 
   it('contains no destructive row or table operations', () => {
     expect(migration).not.toMatch(/\b(DROP\s+TABLE|DROP\s+SCHEMA|TRUNCATE|DELETE\s+FROM|UPDATE\s+public\.)\b/i);
+  });
+
+  it('repairs only the known budget foreign-key drift without rewriting rows', () => {
+    expect(deleteSemanticsMigration).toContain("fk.confdeltype = 'c'");
+    expect(deleteSemanticsMigration).toContain("fk.confdeltype <> 'n'");
+    expect(deleteSemanticsMigration).toContain('ON DELETE CASCADE');
+    expect(deleteSemanticsMigration).toContain('DROP CONSTRAINT %I');
+    expect(deleteSemanticsMigration).toContain('Expected exactly one transactions.budget_id');
+    expect(deleteSemanticsMigration).not.toMatch(/\b(TRUNCATE|DELETE\s+FROM|UPDATE\s+public\.)\b/i);
   });
 });
