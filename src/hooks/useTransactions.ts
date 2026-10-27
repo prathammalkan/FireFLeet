@@ -1,21 +1,33 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
-import { useStore, type Transaction } from '@/lib/store';
+import { useStore } from '@/lib/store';
+import { pendingDeleteTimers, pendingDeletes } from '@/lib/pendingDeletes';
 import { useAuth } from './useAuth';
 import { generateId, validateAmount } from '@/lib/utils';
 
+// Stable module-level singleton — no re-instantiation on render
+const supabase = getSupabaseBrowserClient();
+
+interface TransactionRow {
+  id: string;
+  amount: string | number;
+  category: string | null;
+  comment: string | null;
+  created_at: string;
+  user_id: string;
+  budget_id: string | null;
+}
+
 export function useTransactions() {
   const { user } = useAuth();
-  const supabase = getSupabaseBrowserClient();
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const clearDeleteError = useCallback(() => setDeleteError(null), []);
   const budget = useStore((s) => s.budget);
   const addTx = useStore((s) => s.addTransaction);
   const deleteTx = useStore((s) => s.deleteTransaction);
   const setTransactions = useStore((s) => s.setTransactions);
-
-  // Store pending deletes so we can undo them
-  const pendingDeletes = useRef<Map<string, Transaction>>(new Map());
 
   const fetchTransactions = useCallback(async () => {
     if (!user || !budget) return;
@@ -34,24 +46,31 @@ export function useTransactions() {
       .order('created_at', { ascending: false })
       .limit(500);
 
-    if (!error && data) {
+    if (error) {
+      console.warn('fetchTransactions: database request failed', error.message);
+      return;
+    }
+
+    if (data) {
       setTransactions(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        data.map((t: any) => {
-          const amount = Number(t.amount);
-          return {
-            id: String(t.id),
-            amount: isFinite(amount) ? amount : 0,
-            category: String(t.category || 'other'),
-            comment: t.comment ? String(t.comment).slice(0, 200) : null,
-            created_at: String(t.created_at),
-            userId: String(t.user_id),
-            budgetId: String(t.budget_id),
-          };
-        })
+        data
+          // Keep rows pending deletion hidden until the DB delete lands
+          .filter((t: TransactionRow) => !pendingDeletes.has(String(t.id)))
+          .map((t: TransactionRow) => {
+            const amount = Number(t.amount);
+            return {
+              id: String(t.id),
+              amount: isFinite(amount) ? amount : 0,
+              category: String(t.category || 'other'),
+              comment: t.comment ? String(t.comment).slice(0, 200) : null,
+              created_at: String(t.created_at),
+              userId: String(t.user_id),
+              budgetId: String(t.budget_id),
+            };
+          })
       );
     }
-  }, [user, budget, supabase, setTransactions]);
+  }, [user, budget, setTransactions]);
 
   useEffect(() => {
     if (user && budget) fetchTransactions();
@@ -91,7 +110,7 @@ export function useTransactions() {
       addTx(optimistic);
 
       // Haptic feedback
-      navigator?.vibrate?.(10);
+      if (typeof navigator !== 'undefined') navigator.vibrate?.(10);
 
       const { data, error } = await supabase
         .from('transactions')
@@ -122,7 +141,7 @@ export function useTransactions() {
         budgetId: data.budget_id,
       });
     },
-    [user, budget, supabase, addTx, deleteTx]
+    [user, budget, addTx, deleteTx]
   );
 
   /**
@@ -136,27 +155,42 @@ export function useTransactions() {
       const transactions = useStore.getState().transactions;
       const tx = transactions.find((t) => t.id === safeId);
 
-      if (tx) {
-        pendingDeletes.current.set(safeId, tx);
-      }
+      // A stale gesture must not issue a blind delete for an unknown row.
+      if (!tx || !user) return;
+
+      const previousTimer = pendingDeleteTimers.get(safeId);
+      if (previousTimer) clearTimeout(previousTimer);
+      pendingDeletes.set(safeId, tx);
+      setDeleteError(null);
 
       // Remove from UI immediately
       deleteTx(safeId);
 
       // Schedule permanent DB delete after 5s
-      setTimeout(async () => {
-        if (!pendingDeletes.current.has(safeId)) return; // already restored
-        pendingDeletes.current.delete(safeId);
+      const timer = setTimeout(async () => {
+        if (!pendingDeletes.has(safeId)) return; // already restored or flushed
+        pendingDeletes.delete(safeId);
+        pendingDeleteTimers.delete(safeId);
 
-        if (!user) return;
-        await supabase
-          .from('transactions')
-          .delete()
-          .eq('id', safeId)
-          .eq('user_id', user.id);
+        try {
+          const { error } = await supabase
+            .from('transactions')
+            .delete()
+            .eq('id', safeId)
+            .eq('user_id', user.id);
+          if (error) throw error;
+        } catch (e) {
+          console.warn('deleteTransaction: DB delete threw', e);
+          // Restore only if a concurrent refresh has not already reinserted it.
+          useStore.setState((state) => state.transactions.some((t) => t.id === tx.id)
+            ? state
+            : { transactions: [tx, ...state.transactions] });
+          setDeleteError('Could not delete that expense. It was restored.');
+        }
       }, 5500); // slightly longer than the 5s undo UI to ensure user can tap
+      pendingDeleteTimers.set(safeId, timer);
     },
-    [user, supabase, deleteTx]
+    [deleteTx, user]
   );
 
   /**
@@ -165,14 +199,27 @@ export function useTransactions() {
   const restoreTransaction = useCallback(
     (id: string) => {
       const safeId = String(id);
-      const tx = pendingDeletes.current.get(safeId);
+      const tx = pendingDeletes.get(safeId);
       if (tx) {
-        pendingDeletes.current.delete(safeId);
-        addTx(tx);
+        const timer = pendingDeleteTimers.get(safeId);
+        if (timer) clearTimeout(timer);
+        pendingDeleteTimers.delete(safeId);
+        pendingDeletes.delete(safeId);
+        useStore.setState((state) => state.transactions.some((t) => t.id === tx.id)
+          ? state
+          : { transactions: [tx, ...state.transactions] });
+        setDeleteError(null);
       }
     },
-    [addTx]
+    []
   );
 
-  return { fetchTransactions, addTransaction, deleteTransaction, restoreTransaction };
+  return {
+    fetchTransactions,
+    addTransaction,
+    deleteTransaction,
+    restoreTransaction,
+    deleteError,
+    clearDeleteError,
+  };
 }

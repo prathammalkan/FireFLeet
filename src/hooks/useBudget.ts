@@ -4,8 +4,11 @@ import { useCallback, useEffect, useRef } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
 import { useStore } from '@/lib/store';
 import { useAuth } from './useAuth';
-import { isValidCurrency } from '@/lib/utils';
+import { isValidCurrency, toDateInputValue } from '@/lib/utils';
 import type { Currency, PeriodType } from '@/lib/store';
+
+// Stable module-level singleton — no re-instantiation on render
+const supabase = getSupabaseBrowserClient();
 
 const VALID_PERIOD_TYPES: PeriodType[] = ['weekly', 'monthly', 'custom'];
 
@@ -19,14 +22,13 @@ interface CreateBudgetParams {
 
 export function useBudget() {
   const { user } = useAuth();
-  const supabase = getSupabaseBrowserClient();
   const setBudget = useStore((s) => s.setBudget);
   const budget = useStore((s) => s.budget);
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchBudget = useCallback(async () => {
     if (!user) return;
-    const today = new Date().toISOString().split('T')[0];
+    const today = toDateInputValue();
     const { data, error } = await supabase
       .from('budgets')
       .select('id, amount, currency, period_type, start_date, end_date, user_id')
@@ -67,7 +69,7 @@ export function useBudget() {
       // No active budget — clear any stale cached budget
       setBudget(null);
     }
-  }, [user, supabase, setBudget]);
+  }, [user, setBudget]);
 
   // Fetch on mount when user available and no budget cached
   useEffect(() => {
@@ -124,7 +126,7 @@ export function useBudget() {
         userId: data.user_id,
       });
     },
-    [user, supabase, setBudget]
+    [user, setBudget]
   );
 
   /**
@@ -152,7 +154,7 @@ export function useBudget() {
       setBudget({ ...budget, amount: confirmed });
       return confirmed;
     },
-    [user, budget, supabase, setBudget]
+    [user, budget, setBudget]
   );
 
   return { budget, fetchBudget, createBudget, updateBudgetAmount };

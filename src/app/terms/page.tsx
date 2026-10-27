@@ -67,7 +67,7 @@ export default function TermsOfService() {
           <section>
             <h2 className="text-base font-bold text-white mb-2">5. Limitation of Liability</h2>
             <p className="text-sm text-[#9ca3af] leading-relaxed">
-              FireFleet is provided "as is". We shall not be liable for any indirect, incidental, special, consequential, or punitive damages resulting from your use of the service. We do not provide financial advice.
+              FireFleet is provided &quot;as is&quot;. We shall not be liable for any indirect, incidental, special, consequential, or punitive damages resulting from your use of the service. We do not provide financial advice.
             </p>
           </section>
 

@@ -107,9 +107,12 @@ CREATE POLICY "Users can delete own categories"
 
 -- ─── Auto-update updated_at ───────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER LANGUAGE plpgsql AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public
+AS $$
 BEGIN
-  NEW.updated_at = NOW();
+  NEW.updated_at = pg_catalog.now();
   RETURN NEW;
 END;
 $$;

@@ -1,25 +1,34 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useSyncExternalStore } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Download, Share2 } from 'lucide-react';
 
+function subscribeNoop() {
+  return () => {};
+}
+
+function getIsIOS() {
+  return typeof navigator !== 'undefined' && /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+
+function getServerIsIOS() {
+  return false;
+}
+
 export function InstallPrompt() {
   const [show, setShow] = useState(false);
-  const [isIOS, setIsIOS] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState<Event & { prompt: () => void } | null>(null);
+  const isIOS = useSyncExternalStore(subscribeNoop, getIsIOS, getServerIsIOS);
+  const [deferredPrompt, setDeferredPrompt] = useState<(Event & { prompt: () => void }) | null>(null);
 
   useEffect(() => {
     const dismissed = localStorage.getItem('ff-install-dismissed');
     if (dismissed) return;
 
-    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
     const standalone = window.matchMedia('(display-mode: standalone)').matches;
     if (standalone) return; // Already installed
 
-    setIsIOS(ios);
-
-    if (ios) {
+    if (isIOS) {
       // Show after 4s on iOS
       const timer = setTimeout(() => setShow(true), 4000);
       return () => clearTimeout(timer);
@@ -29,13 +38,12 @@ export function InstallPrompt() {
     function handlePrompt(e: Event) {
       e.preventDefault();
       setDeferredPrompt(e as Event & { prompt: () => void });
-      const timer = setTimeout(() => setShow(true), 4000);
-      return () => clearTimeout(timer);
+      setShow(true);
     }
 
     window.addEventListener('beforeinstallprompt', handlePrompt);
     return () => window.removeEventListener('beforeinstallprompt', handlePrompt);
-  }, []);
+  }, [isIOS]);
 
   function dismiss() {
     localStorage.setItem('ff-install-dismissed', '1');

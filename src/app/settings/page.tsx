@@ -7,9 +7,8 @@ import { Navigation } from '@/components/ui/Navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { useStore } from '@/lib/store';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
-import { formatCurrency } from '@/lib/utils';
+import { escapeCsvCell, formatCurrency } from '@/lib/utils';
 import { AddToBudgetSheet } from '@/components/budget/AddToBudgetSheet';
-
 
 export default function SettingsPage() {
   const { user, signOut } = useAuth();
@@ -24,10 +23,9 @@ export default function SettingsPage() {
   const [showTopUp, setShowTopUp] = useState(false);
   const supabase = getSupabaseBrowserClient();
 
-
   async function handleSignOut() {
     setLoggingOut(true);
-    await signOut(); // signOut already calls reset() + clears localStorage
+    await signOut();
     router.replace('/auth');
   }
 
@@ -36,16 +34,13 @@ export default function SettingsPage() {
     if (!user) return;
     setResetting(true);
     try {
-      // EDGE-05 FIX: Delete server data first, then clear local state
-      // Deleting the budget cascades to transactions via ON DELETE CASCADE
       if (budget?.id) {
         const { error } = await supabase
           .from('budgets')
           .delete()
           .eq('id', budget.id)
-          .eq('user_id', user.id); // belt-and-suspenders
+          .eq('user_id', user.id);
         if (error) {
-          console.error('[Reset] Failed to delete budget:', error.message);
           alert('Failed to reset data. Please try again.');
           setResetting(false);
           return;
@@ -59,7 +54,6 @@ export default function SettingsPage() {
     }
   }
 
-
   function handleExport() {
     if (transactions.length === 0) { alert('No transactions to export.'); return; }
     const rows = [
@@ -72,7 +66,9 @@ export default function SettingsPage() {
         t.comment ?? '',
       ]),
     ];
-    const csv = rows.map((r) => r.map((cell) => `"${cell}"`).join(',')).join('\n');
+    const csv = rows
+      .map((r) => r.map(escapeCsvCell).join(','))
+      .join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -82,18 +78,13 @@ export default function SettingsPage() {
     URL.revokeObjectURL(url);
   }
 
-  const navBottom = 'calc(64px + env(safe-area-inset-bottom, 0px))';
-
   return (
-    <div
-      className="page-root overflow-y-auto scroll-container"
-      style={{ paddingBottom: `calc(${navBottom} + 16px)` }}
-    >
+    <div className="page-root">
       <div className="px-5 pb-4" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}>
         <h1 className="text-xl font-black text-white">Settings</h1>
       </div>
 
-      <div className="px-5 flex flex-col gap-4">
+      <div className="px-5 flex flex-col gap-4 pb-6">
         {/* Profile */}
         <div className="bg-[#13131a] border border-[#1f1f2e] rounded-3xl p-5 flex items-center gap-4">
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#f97316] to-[#ea580c] flex items-center justify-center shrink-0">
@@ -120,7 +111,6 @@ export default function SettingsPage() {
           </SettingsSection>
         )}
 
-
         {/* Theme toggle */}
         <SettingsSection title="Appearance">
           <div className="flex items-center justify-between py-3">
@@ -128,16 +118,15 @@ export default function SettingsPage() {
               {theme === 'dark' ? <Moon className="w-4 h-4 text-[#9ca3af]" /> : <Sun className="w-4 h-4 text-[#9ca3af]" />}
               <span className="text-white font-medium">Dark mode</span>
             </div>
-            {/* CSS toggle — no JS animation overhead */}
             <button
               onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              className="relative w-12 h-6 rounded-full transition-colors duration-300"
+              className="relative w-12 h-6 rounded-full transition-colors duration-200"
               style={{ background: theme === 'dark' ? '#f97316' : '#1f1f2e' }}
               aria-label="Toggle dark mode"
               aria-pressed={theme === 'dark'}
             >
               <div
-                className="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-300"
+                className="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200"
                 style={{ transform: theme === 'dark' ? 'translateX(26px)' : 'translateX(2px)' }}
               />
             </button>

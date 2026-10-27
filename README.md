@@ -1,36 +1,41 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# FireFleet
 
-## Getting Started
+FireFleet is a personal finance Progressive Web App built with Next.js 16, React 19, Zustand, and Supabase.
 
-First, run the development server:
+## Local development
+
+Use Node.js 24.x (the Vercel project runtime) and npm:
 
 ```bash
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Copy `.env.example` to `.env.local` and provide:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- `NEXT_PUBLIC_SUPABASE_URL` — the intended Supabase project URL.
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` — the Supabase publishable/anon key. Never use a service-role key in the browser.
+- `NEXT_PUBLIC_APP_URL` — the canonical app URL used for auth redirects.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Run the release checks:
 
-## Learn More
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
 
-To learn more about Next.js, take a look at the following resources:
+The build can compile without local Supabase credentials, but authentication and data workflows require valid project configuration.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Database migrations
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+`supabase/migrations/001_initial_schema.sql` defines the budgets, transactions, and categories tables, constraints, indexes, triggers, and RLS policies. Review it against the intended Supabase project before applying it. Apply migrations through the Supabase SQL editor or the approved Supabase migration workflow; do not reset or run destructive SQL against production as a shortcut.
 
-## Deploy on Vercel
+Every user-owned table must retain RLS and policies that scope rows to `auth.uid()`.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Deployment
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Vercel is configured to run `npm install` and `next build`. Configure the three environment variables above in the Vercel Production environment, verify the build, and smoke-test the deployed URL before release. Production deployment is performed through the repository's established Vercel integration.
+
+GitHub Actions runs lint, type checking, tests, and the production build on pushes and pull requests. Protect `main` and require this workflow before merging.

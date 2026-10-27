@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronRight, Delete } from 'lucide-react';
 import { useBudget } from '@/hooks/useBudget';
-import { cn } from '@/lib/utils';
+import { useRequireAuth } from '@/hooks/useRequireAuth';
+import { cn, toDateInputValue } from '@/lib/utils';
 import { type Currency, type PeriodType } from '@/lib/store';
 
 const NUMPAD = ['1','2','3','4','5','6','7','8','9','.','0','⌫'];
@@ -24,6 +25,7 @@ type Step = 'amount' | 'currency' | 'period';
 const STEPS: Step[] = ['amount', 'currency', 'period'];
 
 export function BudgetSetup() {
+  const { user, loading: authLoading } = useRequireAuth();
   const [step, setStep] = useState<Step>('amount');
   const [display, setDisplay] = useState('0');
   const [currency, setCurrency] = useState<Currency>('INR');
@@ -34,6 +36,7 @@ export function BudgetSetup() {
   const router = useRouter();
 
   function handleKey(key: string) {
+    navigator?.vibrate?.(8);
     setDisplay((prev) => {
       if (key === '⌫') return prev.length > 1 ? prev.slice(0, -1) : '0';
       if (key === '.' && prev.includes('.')) return prev;
@@ -41,6 +44,29 @@ export function BudgetSetup() {
       if (prev.length >= 8) return prev;
       return prev + key;
     });
+  }
+
+  if (authLoading || !user) {
+    return (
+      <div
+        className="page-root flex flex-col px-5"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 32px)' }}
+      >
+        <div className="flex gap-2 mb-6">
+          <div className="flex-1 h-1 rounded-full skeleton" />
+          <div className="flex-1 h-1 rounded-full skeleton" />
+          <div className="flex-1 h-1 rounded-full skeleton" />
+        </div>
+        <div className="skeleton w-48 h-8 mb-2" />
+        <div className="skeleton w-64 h-4 mb-8" />
+        <div className="skeleton w-40 h-16 mx-auto my-6" />
+        <div className="grid grid-cols-3 gap-2.5">
+          {Array.from({ length: 12 }).map((_, i) => (
+            <div key={i} className="skeleton h-16 rounded-2xl" />
+          ))}
+        </div>
+      </div>
+    );
   }
 
   async function handleCreate() {
@@ -54,17 +80,17 @@ export function BudgetSetup() {
     setLoading(true);
     setError('');
     try {
-      const now = new Date();
-      const endDate = new Date(now);
-      if (period === 'weekly') endDate.setDate(now.getDate() + 7);
-      else endDate.setMonth(now.getMonth() + 1);
+       const now = new Date();
+       const endDate = new Date(now);
+       if (period === 'weekly') endDate.setDate(now.getDate() + 7);
+       else endDate.setMonth(now.getMonth() + 1);
 
       await createBudget({
         amount: Math.round(amount * 100) / 100, // normalize to 2dp
         currency,
         periodType: period,
-        startDate: now.toISOString().split('T')[0],
-        endDate: endDate.toISOString().split('T')[0],
+         startDate: toDateInputValue(now),
+         endDate: toDateInputValue(endDate),
       });
       router.replace('/');
     } catch (err: unknown) {
@@ -137,9 +163,11 @@ export function BudgetSetup() {
               <div className="grid grid-cols-3 gap-2.5">
                 {NUMPAD.map((key) => (
                   <button
+                    type="button"
                     key={key}
-                    onPointerDown={() => handleKey(key)}
-                    className="h-16 rounded-2xl bg-[#13131a] border border-[#1f1f2e] text-xl font-semibold text-white flex items-center justify-center active:bg-[#f97316]/12 active:scale-[0.93] transition-all duration-75"
+                    onClick={() => handleKey(key)}
+                    aria-label={key === '⌫' ? 'Backspace' : key}
+                    className="h-16 rounded-2xl bg-[#13131a] border border-[#1f1f2e] text-xl font-semibold text-white flex items-center justify-center numpad-key active:bg-[#f97316]/12 active:scale-[0.93] transition-all duration-75"
                   >
                     {key === '⌫' ? <Delete className="w-5 h-5 text-[#f97316]" /> : key}
                   </button>

@@ -12,59 +12,81 @@
   --ff-success: #22c55e;
   --ff-warning: #eab308;
   --ff-danger: #ef4444;
-  /* Real device viewport height - avoids iOS bottom bar cutting content */
-  --vh: 1dvh;
+  --nav-height: 64px;
 }
 
-/* === Reset === */
+/* ── Reset ─────────────────────────────────────────────────────────────── */
 *, *::before, *::after {
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
 }
 
-/* CRITICAL PERF: touch-action:manipulation removes the 300ms tap delay
-   on ALL interactive elements without any JavaScript library */
+/* CRITICAL: eliminates 300ms tap delay across ALL interactive elements */
 button, a, [role="button"], input, select, textarea, label {
   touch-action: manipulation;
 }
 
 html {
   height: 100%;
-  overflow-x: hidden;
+  height: 100dvh;
+  overflow: hidden;          /* HTML itself never scrolls */
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  background: #0a0a0f;
 }
 
 body {
-  min-height: 100%;
-  min-height: 100dvh; /* Dynamic viewport — correct on iOS Safari */
+  height: 100%;
+  height: 100dvh;
+  overflow: hidden;          /* Body never scrolls — pages scroll internally */
   background-color: #0a0a0f;
   color: #ffffff;
   overscroll-behavior: none;
-  -webkit-overflow-scrolling: touch;
   font-family: var(--font-geist), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* === Page container — use dvh for real device height === */
+/* ── Page root: full screen, scrolls internally ─────────────────────── */
 .page-root {
-  min-height: 100dvh;
+  position: fixed;
+  inset: 0;
   background-color: #0a0a0f;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  /* Reserve space for the bottom nav */
+  padding-bottom: calc(var(--nav-height) + env(safe-area-inset-bottom, 0px));
 }
 
-/* === Scrollbar hiding === */
+/* Pages without nav (onboarding, auth, setup) */
+.page-root-full {
+  position: fixed;
+  inset: 0;
+  background-color: #0a0a0f;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+/* ── Scrollbar hiding ─────────────────────────────────────────────────── */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* === Safe area utilities === */
+/* ── Scroll container (for inner scroll areas like bottom sheets) ─────── */
+.scroll-container {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+/* ── Safe area helpers ────────────────────────────────────────────────── */
 .pt-safe { padding-top: env(safe-area-inset-top, 0px); }
 .pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
-.mt-safe { margin-top: env(safe-area-inset-top, 0px); }
-.mb-safe { margin-bottom: env(safe-area-inset-bottom, 0px); }
 
-/* === GPU-accelerated base for animated elements === */
-/* Use transform: translateZ(0) to promote to compositing layer */
+/* ── GPU compositing layer ────────────────────────────────────────────── */
 .gpu {
   transform: translateZ(0);
   will-change: transform;
@@ -72,57 +94,44 @@ body {
   -webkit-backface-visibility: hidden;
 }
 
-/* === Contain layout to reduce repaint scope === */
-.contain-layout {
-  contain: layout style;
-}
-
-/* === Bottom nav — no backdrop blur (too expensive on mobile) === */
+/* ── Bottom nav ───────────────────────────────────────────────────────── */
 .nav-bar {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
   z-index: 40;
-  background-color: rgba(10, 10, 15, 0.98); /* solid near-opaque, no blur */
+  background-color: #0a0a0f;
   border-top: 1px solid #1f1f2e;
   padding-bottom: env(safe-area-inset-bottom, 0px);
-  /* Promote to own compositing layer */
   transform: translateZ(0);
-  will-change: transform;
 }
 
-/* === Sticky header — lighter than backdrop-blur === */
+/* ── Sticky page header ───────────────────────────────────────────────── */
 .sticky-header {
   position: sticky;
   top: 0;
   z-index: 20;
-  background-color: rgba(10, 10, 15, 0.97);
-  /* Cheap border instead of blur */
+  background-color: #0a0a0f;
   border-bottom: 1px solid #1f1f2e;
   transform: translateZ(0);
 }
 
-/* === Glass morphism — NO backdrop-filter (too expensive on mobile GPU) === */
+/* ── Glass — solid, NO backdrop-filter (too slow on mobile GPU) ───────── */
 .glass {
-  background: rgba(19, 19, 26, 0.97);
+  background: #13131a;
   border: 1px solid rgba(255, 255, 255, 0.07);
 }
 
-/* === Animation keyframes === */
+/* ── Animations ───────────────────────────────────────────────────────── */
 @keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
 }
 
 @keyframes pulse-ring {
-  0% { transform: scale(1); opacity: 0.6; }
-  100% { transform: scale(1.6); opacity: 0; }
-}
-
-@keyframes float {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-8px); }
+  0%   { transform: scale(1);   opacity: 0.6; }
+  100% { transform: scale(1.6); opacity: 0;   }
 }
 
 @keyframes spin {
@@ -131,17 +140,26 @@ body {
 
 @keyframes fade-slide-up {
   from { opacity: 0; transform: translateY(16px); }
-  to   { opacity: 1; transform: translateY(0); }
+  to   { opacity: 1; transform: translateY(0);    }
 }
 
-/* === Animation utility classes === */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1);    }
+}
+
+/* ── Utility animation classes ────────────────────────────────────────── */
 .animate-shimmer {
   background: linear-gradient(90deg, #1a1a24 25%, #252535 50%, #1a1a24 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s linear infinite;
 }
 
-/* Pulse ring on FAB — CSS only, no JS */
 .animate-pulse-ring {
   position: absolute;
   inset: 0;
@@ -149,10 +167,6 @@ body {
   background: rgba(249, 115, 22, 0.4);
   animation: pulse-ring 2s ease-out infinite;
   pointer-events: none;
-}
-
-.animate-float {
-  animation: float 3s ease-in-out infinite;
 }
 
 .animate-spin-slow {
@@ -163,39 +177,66 @@ body {
   animation: fade-slide-up 0.3s ease-out both;
 }
 
-/* === Input — prevent iOS zoom (requires font-size >= 16px) === */
-input, textarea, select {
-  font-size: 16px; /* exact 16px prevents iOS zoom */
+.animate-fade-in {
+  animation: fade-in 0.25s ease-out both;
 }
 
-/* === Text selection === */
+.animate-scale-in {
+  animation: scale-in 0.2s ease-out both;
+}
+
+/* ── Inputs — prevent iOS zoom (font-size must be >= 16px) ────────────── */
+input, textarea, select {
+  font-size: 16px;
+}
+
+/* ── Text selection ───────────────────────────────────────────────────── */
 ::selection {
   background: rgba(249, 115, 22, 0.25);
   color: #fff;
 }
 
-/* === Focus ring === */
+/* ── Focus ring ───────────────────────────────────────────────────────── */
 :focus-visible {
   outline: 2px solid #f97316;
   outline-offset: 2px;
   border-radius: 8px;
 }
 
-/* === Smooth scroll on touch === */
-.scroll-container {
-  -webkit-overflow-scrolling: touch;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
-}
-
-/* === Transaction item — contain repaint === */
+/* ── Transaction item ─────────────────────────────────────────────────── */
 .transaction-item {
   contain: layout style;
   transform: translateZ(0);
 }
 
-/* === Bottom sheet — GPU layer === */
+/* ── Bottom sheet ─────────────────────────────────────────────────────── */
 .bottom-sheet {
   will-change: transform;
   transform: translateZ(0);
+}
+
+/* ── Skeleton loading ─────────────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(90deg, #1a1a24 25%, #222230 50%, #1a1a24 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s linear infinite;
+  border-radius: 12px;
+}
+
+/* ── Press feedback ───────────────────────────────────────────────────── */
+.press-feedback {
+  transition: transform 100ms ease, opacity 100ms ease;
+}
+.press-feedback:active {
+  transform: scale(0.97);
+  opacity: 0.85;
+}
+
+/* ── Numpad key ───────────────────────────────────────────────────────── */
+.numpad-key {
+  transition: background-color 60ms ease, transform 60ms ease;
+  will-change: transform;
+}
+.numpad-key:active {
+  transform: scale(0.93);
 }

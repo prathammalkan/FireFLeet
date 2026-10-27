@@ -17,7 +17,7 @@ export default function HistoryPage() {
   const [filterCat, setFilterCat] = useState<string | null>(null);
   const transactions = useStore((s) => s.transactions);
   const budget = useStore((s) => s.budget);
-  const { deleteTransaction } = useTransactions();
+  const { deleteTransaction, deleteError, clearDeleteError } = useTransactions();
   useBudget();
 
   const filtered = transactions.filter((t) => {
@@ -32,14 +32,9 @@ export default function HistoryPage() {
   const groups = groupTransactionsByDate(filtered);
   const total = filtered.reduce((s, t) => s + t.amount, 0);
 
-  const navBottom = 'calc(64px + env(safe-area-inset-bottom, 0px))';
-
   return (
-    <div
-      className="page-root overflow-y-auto scroll-container"
-      style={{ paddingBottom: `calc(${navBottom} + 16px)` }}
-    >
-      {/* Sticky header — no backdrop-blur, solid bg */}
+    <div className="page-root">
+      {/* Sticky header */}
       <div
         className="sticky-header px-5 pb-3"
         style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}
@@ -58,14 +53,14 @@ export default function HistoryPage() {
           </button>
         </div>
 
-        {/* Search */}
+        {/* Search input */}
         <AnimatePresence>
           {searchOpen && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.18 }}
+              transition={{ duration: 0.15 }}
               className="overflow-hidden mb-3"
             >
               <div className="relative">
@@ -84,7 +79,7 @@ export default function HistoryPage() {
           )}
         </AnimatePresence>
 
-        {/* Category filters — horizontal scroll, pure CSS buttons */}
+        {/* Category filters */}
         <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
           <button
             onClick={() => setFilterCat(null)}
@@ -111,7 +106,13 @@ export default function HistoryPage() {
         </div>
       </div>
 
-      <div className="px-5 pt-4">
+      <div className="px-5 pt-4 pb-4">
+        {deleteError && (
+          <div role="alert" className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-[#ef4444]/30 bg-[#3a1515] px-4 py-3 text-sm text-[#fecaca]">
+            <span>{deleteError}</span>
+            <button onClick={clearDeleteError} className="shrink-0 font-bold text-white">Dismiss</button>
+          </div>
+        )}
         {filtered.length > 0 && (
           <div className="mb-4 p-4 rounded-2xl bg-[#13131a] border border-[#1f1f2e]">
             <p className="text-xs text-[#9ca3af] font-semibold uppercase tracking-wider">

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef, Suspense, lazy } from 'react';
+import { useState, useCallback, useEffect, useRef, Suspense } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Plus, Flame, TrendingUp, Wallet } from 'lucide-react';
 import { BudgetDisplay } from '@/components/budget/BudgetDisplay';
@@ -13,8 +13,8 @@ import { useTransactions } from '@/hooks/useTransactions';
 import { useBudget } from '@/hooks/useBudget';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 
-// PERF: Lazy-load heavy sheets — they're hidden behind a FAB by default
 import dynamic from 'next/dynamic';
 const AddExpenseSheet = dynamic(
   () => import('@/components/budget/AddExpenseSheet').then((m) => ({ default: m.AddExpenseSheet })),
@@ -36,7 +36,6 @@ function getGreeting() {
   return 'evening';
 }
 
-// SearchParams must be in a Suspense boundary
 function SearchParamsHandler({ onAddAction }: { onAddAction: () => void }) {
   const searchParams = useSearchParams();
   const budget = useStore((s) => s.budget);
@@ -49,7 +48,6 @@ function SearchParamsHandler({ onAddAction }: { onAddAction: () => void }) {
   return null;
 }
 
-// Undo toast for deleted transactions
 function UndoToast({
   message,
   onUndo,
@@ -59,14 +57,20 @@ function UndoToast({
   onUndo: () => void;
   onDismiss: () => void;
 }) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    const t = setTimeout(onDismiss, 5000);
-    return () => clearTimeout(t);
-  }, [onDismiss]);
+    timerRef.current = setTimeout(onDismiss, 5000);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
-    <div
-      className="fixed left-4 right-4 z-[60] flex items-center justify-between gap-3 bg-[#1a1a24] border border-[#1f1f2e] rounded-2xl px-4 py-3 shadow-xl animate-fade-slide-up"
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 8 }}
+      transition={{ duration: 0.18 }}
+      className="fixed left-4 right-4 z-[60] flex items-center justify-between gap-3 bg-[#1a1a24] border border-[#1f1f2e] rounded-2xl px-4 py-3 shadow-xl"
       style={{ bottom: 'calc(80px + env(safe-area-inset-bottom, 0px))' }}
     >
       <span className="text-white text-sm font-medium">{message}</span>
@@ -76,7 +80,7 @@ function UndoToast({
       >
         Undo
       </button>
-    </div>
+    </motion.div>
   );
 }
 
@@ -91,13 +95,15 @@ function HomeContent() {
   const { user, loading: authLoading } = useAuth();
   const budget = useStore((s) => s.budget);
   const transactions = useStore((s) => s.transactions);
-  const { deleteTransaction, restoreTransaction } = useTransactions();
+  const { deleteTransaction, restoreTransaction, deleteError, clearDeleteError } = useTransactions();
   useBudget();
 
   // Register SW once
   useEffect(() => {
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
+      navigator.serviceWorker.getRegistration('/sw.js').then((reg) => {
+        if (!reg) navigator.serviceWorker.register('/sw.js').catch(() => {});
+      }).catch(() => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
     }
   }, []);
 
@@ -125,20 +131,10 @@ function HomeContent() {
   const openTopUp = useCallback(() => { setFabOpen(false); setShowTopUp(true); }, []);
   const closeTopUp = useCallback(() => setShowTopUp(false), []);
 
-  // Soft delete with undo
   const handleDelete = useCallback((id: string) => {
-    // Haptic feedback
     navigator?.vibrate?.(10);
-
-    // Hide from UI immediately (optimistic)
     deleteTransaction(id);
-
-    // Set a 5s timer before permanent deletion
-    const timer = setTimeout(() => {
-      setPendingDelete(null);
-      // Transaction is already deleted optimistically — no further action needed
-    }, 5000);
-
+    const timer = setTimeout(() => { setPendingDelete(null); }, 5000);
     setPendingDelete({ id, timer });
   }, [deleteTransaction]);
 
@@ -150,16 +146,36 @@ function HomeContent() {
     }
   }, [pendingDelete, restoreTransaction]);
 
-  const dismissUndo = useCallback(() => {
-    setPendingDelete(null);
-  }, []);
+  const dismissUndo = useCallback(() => { setPendingDelete(null); }, []);
 
+  // Loading skeleton
   if (authLoading || !user) {
     return (
-      <div className="page-root flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 rounded-full border-2 border-[#f97316] border-t-transparent animate-spin-slow" />
-          <p className="text-[#9ca3af] text-sm">Loading…</p>
+      <div className="page-root">
+        <div
+          className="px-5 flex items-center justify-between"
+          style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}
+        >
+          <div className="flex flex-col gap-2">
+            <div className="skeleton w-20 h-3" />
+            <div className="skeleton w-32 h-6" />
+          </div>
+          <div className="skeleton w-11 h-11 rounded-2xl" />
+        </div>
+        <div className="px-5 pt-5 pb-3">
+          <div className="text-center mb-4">
+            <div className="skeleton w-16 h-3 mx-auto mb-2" />
+            <div className="skeleton w-48 h-14 mx-auto mb-2" />
+            <div className="skeleton w-32 h-4 mx-auto" />
+          </div>
+          <div className="skeleton w-full h-2.5 rounded-full mb-3" />
+          <div className="skeleton w-full h-16 rounded-2xl" />
+        </div>
+        <div className="px-5 mt-1 flex flex-col gap-2">
+          <div className="skeleton w-24 h-4 mb-1" />
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="skeleton w-full h-[72px] rounded-2xl" />
+          ))}
         </div>
       </div>
     );
@@ -167,13 +183,10 @@ function HomeContent() {
 
   const recentGroups = groupTransactionsByDate(transactions).slice(0, 3);
   const displayName = (user.email?.split('@')[0] ?? 'there').slice(0, 18);
-  const navBottom = 'calc(64px + env(safe-area-inset-bottom, 0px))';
+  const navBottomPx = 'calc(64px + env(safe-area-inset-bottom, 0px))';
 
   return (
-    <div
-      className="page-root overflow-y-auto scroll-container"
-      style={{ paddingBottom: `calc(${navBottom} + 80px)` }}
-    >
+    <div className="page-root">
       <Suspense fallback={null}>
         <SearchParamsHandler onAddAction={openAdd} />
       </Suspense>
@@ -198,16 +211,16 @@ function HomeContent() {
       {budget ? <BudgetDisplay /> : <NoBudgetCard onSetup={() => router.push('/setup')} />}
 
       {/* Recent transactions */}
-      <div className="px-5 mt-1">
+      <div className="px-5 mt-1 pb-6">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-bold text-white text-base">Recent</h2>
           {transactions.length > 0 && (
-            <button
-              onClick={() => router.push('/history')}
+            <Link
+              href="/history"
               className="text-[#f97316] text-sm font-semibold active:opacity-60 transition-opacity"
             >
               See all →
-            </button>
+            </Link>
           )}
         </div>
 
@@ -249,11 +262,22 @@ function HomeContent() {
         )}
       </AnimatePresence>
 
-      {/* ── Expandable FAB ─────────────────────────────────────────────── */}
+      {deleteError && (
+        <div
+          role="alert"
+          className="fixed left-4 right-4 z-[60] flex items-center justify-between gap-3 bg-[#3a1515] border border-[#ef4444]/30 rounded-2xl px-4 py-3 shadow-xl text-[#fecaca] text-sm"
+          style={{ bottom: 'calc(80px + env(safe-area-inset-bottom, 0px))' }}
+        >
+          <span>{deleteError}</span>
+          <button onClick={clearDeleteError} className="font-bold text-white shrink-0">Dismiss</button>
+        </div>
+      )}
+
+      {/* Expandable FAB */}
       <div
         ref={fabRef}
         className="fixed right-5 z-30 flex flex-col-reverse items-end gap-3"
-        style={{ bottom: `calc(${navBottom} + 20px)` }}
+        style={{ bottom: `calc(${navBottomPx} + 20px)` }}
         role="group"
         aria-label="Quick actions"
       >
@@ -265,7 +289,7 @@ function HomeContent() {
                 initial={{ opacity: 0, y: 10, scale: 0.85 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 10, scale: 0.85 }}
-                transition={{ duration: 0.15, delay: 0.05 }}
+                transition={{ duration: 0.13, delay: 0.04 }}
                 className="flex items-center gap-2"
               >
                 <span className="bg-[#13131a] border border-[#1f1f2e] text-white text-xs font-semibold px-3 py-1.5 rounded-xl shadow-lg">
@@ -285,7 +309,7 @@ function HomeContent() {
                 initial={{ opacity: 0, y: 10, scale: 0.85 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 10, scale: 0.85 }}
-                transition={{ duration: 0.15 }}
+                transition={{ duration: 0.13 }}
                 className="flex items-center gap-2"
               >
                 <span className="bg-[#13131a] border border-[#1f1f2e] text-white text-xs font-semibold px-3 py-1.5 rounded-xl shadow-lg">
@@ -312,7 +336,7 @@ function HomeContent() {
           {!fabOpen && <span className="animate-pulse-ring" />}
           <motion.div
             animate={{ rotate: fabOpen ? 45 : 0 }}
-            transition={{ duration: 0.15 }}
+            transition={{ duration: 0.13 }}
           >
             <Plus className="w-7 h-7 text-white relative z-10" strokeWidth={2.5} />
           </motion.div>
