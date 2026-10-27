@@ -38,6 +38,7 @@ describe('PWA release assets', () => {
     expect(serviceWorker).toContain("if (url.origin !== self.location.origin) return;");
     expect(serviceWorker).toContain("if (request.mode === 'navigate')");
     expect(serviceWorker).toContain("const SW_VERSION = 'v6'");
+    expect(readFileSync(resolve(process.cwd(), 'src/app/page.tsx'), 'utf8')).toContain('registration.update()');
     expect(serviceWorker).not.toContain('supabase.co');
   });
 });

@@ -100,11 +100,21 @@ function HomeContent() {
 
   // Register SW once
   useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistration('/sw.js').then((reg) => {
-        if (!reg) navigator.serviceWorker.register('/sw.js').catch(() => {});
-      }).catch(() => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
-    }
+    if (!('serviceWorker' in navigator)) return;
+
+    void (async () => {
+      try {
+        const registration = await navigator.serviceWorker.getRegistration('/sw.js');
+        if (registration) {
+          // Check for a new immutable asset cache version on every app visit.
+          await registration.update();
+        } else {
+          await navigator.serviceWorker.register('/sw.js');
+        }
+      } catch {
+        // PWA support is progressive; the app remains usable without a worker.
+      }
+    })();
   }, []);
 
   // Auth redirect
