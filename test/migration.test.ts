@@ -33,7 +33,8 @@ describe('Supabase security remediation migration', () => {
     expect(migration).toContain('pg_default_acl');
     expect(migration).toContain('d.defaclnamespace = 0');
     expect(migration).toContain('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public');
-    expect(migration).toContain('cannot alter % default privileges');
+    expect(migration).toContain('supabase_admin public-schema table defaults still grant API roles');
+    expect(migration).toContain('Postgres public-schema table defaults still grant PUBLIC, anon, or authenticated');
     expect(migration).toContain("pg_has_role(current_user, creator_role, 'MEMBER')");
     expect(migration).toContain('idx_categories_user_id');
     expect(migration).toContain('(SELECT auth.uid())');
