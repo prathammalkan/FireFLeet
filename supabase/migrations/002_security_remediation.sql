@@ -74,11 +74,11 @@ BEGIN
   LOOP
     IF NOT EXISTS (
       SELECT 1
-      FROM information_schema.columns
-      WHERE table_schema = 'public'
-        AND table_name = expected.table_name
-        AND column_name = expected.column_name
-        AND is_nullable = expected.nullable
+      FROM information_schema.columns AS cols
+      WHERE cols.table_schema = 'public'
+        AND cols.table_name = expected.table_name
+        AND cols.column_name = expected.column_name
+        AND cols.is_nullable = expected.nullable
     ) THEN
       RAISE EXCEPTION 'Required column public.%.% with nullable=% is missing or incompatible; remediation stopped',
         expected.table_name, expected.column_name, expected.nullable;
