@@ -202,38 +202,36 @@ BEGIN
     RAISE EXCEPTION 'Unsafe global table default privilege found for postgres or supabase_admin; remove it through a separately reviewed global policy change before remediation';
   END IF;
 
-  -- ALTER DEFAULT PRIVILEGES FOR ROLE requires the executing role to be that
-  -- role, a member of it, or a superuser. Do not discover this after earlier
-  -- statements have changed the database. If the migration role cannot act
-  -- for a creator, only a separately role-owned operation may remediate that
-  -- creator's public-schema defaults.
-  FOREACH creator_role IN ARRAY ARRAY['postgres', 'supabase_admin'] LOOP
-    IF NOT (
-      current_user = creator_role
-      OR pg_has_role(current_user, creator_role, 'MEMBER')
-      OR EXISTS (
-        SELECT 1 FROM pg_roles
-        WHERE rolname = current_user AND rolsuper
+  -- The migration must be able to remediate defaults owned by postgres.
+  -- supabase_admin is a Supabase-managed role: never grant membership or
+  -- superuser rights merely to alter its defaults. If we lack authority, leave
+  -- those defaults untouched and report them as a separate platform-level
+  -- follow-up rather than blocking application-table remediation.
+  IF NOT (
+    current_user = 'postgres'
+    OR pg_has_role(current_user, 'postgres', 'MEMBER')
+    OR EXISTS (
+      SELECT 1 FROM pg_roles
+      WHERE rolname = current_user AND rolsuper
+    )
+  ) AND EXISTS (
+    SELECT 1
+    FROM pg_default_acl d
+    JOIN pg_roles owner_role ON owner_role.oid = d.defaclrole
+    CROSS JOIN LATERAL aclexplode(d.defaclacl) acl
+    LEFT JOIN pg_roles grantee_role ON grantee_role.oid = acl.grantee
+    JOIN pg_namespace schema_name ON schema_name.oid = d.defaclnamespace
+    WHERE d.defaclobjtype = 'r'
+      AND schema_name.nspname = 'public'
+      AND owner_role.rolname = 'postgres'
+      AND (
+        acl.grantee = 0
+        OR grantee_role.rolname IN ('anon', 'authenticated')
       )
-    ) AND EXISTS (
-      SELECT 1
-      FROM pg_default_acl d
-      JOIN pg_roles owner_role ON owner_role.oid = d.defaclrole
-      CROSS JOIN LATERAL aclexplode(d.defaclacl) acl
-      LEFT JOIN pg_roles grantee_role ON grantee_role.oid = acl.grantee
-      JOIN pg_namespace schema_name ON schema_name.oid = d.defaclnamespace
-      WHERE d.defaclobjtype = 'r'
-        AND schema_name.nspname = 'public'
-        AND owner_role.rolname = creator_role
-        AND (
-          acl.grantee = 0
-          OR grantee_role.rolname IN ('anon', 'authenticated')
-        )
-    ) THEN
-      RAISE EXCEPTION 'Current role % cannot alter % default privileges; run the public-schema revoke as % or grant reviewed role membership, then rerun remediation',
-        current_user, creator_role, creator_role;
-    END IF;
-  END LOOP;
+  ) THEN
+    RAISE EXCEPTION 'Current role % cannot alter postgres default privileges; run the public-schema revoke as postgres before rerunning remediation',
+      current_user;
+  END IF;
 END $$;
 
 -- ─── Preconditions: preserve privileged service access ────────────────────────
@@ -624,13 +622,32 @@ BEGIN
     JOIN pg_namespace schema_name ON schema_name.oid = d.defaclnamespace
     WHERE d.defaclobjtype = 'r'
       AND schema_name.nspname = 'public'
-      AND owner_role.rolname IN ('postgres', 'supabase_admin')
+      AND owner_role.rolname = 'postgres'
       AND (
         acl.grantee = 0
         OR grantee_role.rolname IN ('anon', 'authenticated')
       )
   ) THEN
-    RAISE EXCEPTION 'Public-schema table defaults still grant PUBLIC, anon, or authenticated; remediation stopped';
+    RAISE EXCEPTION 'Postgres public-schema table defaults still grant PUBLIC, anon, or authenticated; remediation stopped';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM pg_default_acl d
+    JOIN pg_roles owner_role ON owner_role.oid = d.defaclrole
+    CROSS JOIN LATERAL aclexplode(d.defaclacl) acl
+    LEFT JOIN pg_roles grantee_role ON grantee_role.oid = acl.grantee
+    JOIN pg_namespace schema_name ON schema_name.oid = d.defaclnamespace
+    WHERE d.defaclnamespace <> 0
+      AND schema_name.nspname = 'public'
+      AND owner_role.rolname = 'supabase_admin'
+      AND d.defaclobjtype = 'r'
+      AND (
+        acl.grantee = 0
+        OR grantee_role.rolname IN ('anon', 'authenticated')
+      )
+  ) THEN
+    RAISE NOTICE 'supabase_admin public-schema table defaults still grant API roles; this Supabase-managed role was not modified without authority. Do not create FireFLeet application objects as supabase_admin; review platform-level defaults separately.';
   END IF;
 END $$;
 
