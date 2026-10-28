@@ -5,12 +5,19 @@ import { getSupabaseBrowserClient } from '@/lib/supabase';
 import { useStore } from '@/lib/store';
 import { useAuth } from './useAuth';
 import { isValidCurrency, toDateInputValue } from '@/lib/utils';
+import { getCachedBudget, setCachedBudget } from '@/lib/cache';
 import type { Currency, PeriodType } from '@/lib/store';
 
 // Stable module-level singleton — no re-instantiation on render
 const supabase = getSupabaseBrowserClient();
 
 const VALID_PERIOD_TYPES: PeriodType[] = ['weekly', 'monthly', 'custom'];
+
+/**
+ * Minimum gap between revalidation fetches triggered by focus/visibility events.
+ * Prevents a burst of fetches when the user rapidly switches tabs.
+ */
+const REVALIDATE_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes
 
 interface CreateBudgetParams {
   amount: number;
@@ -24,7 +31,7 @@ export function useBudget() {
   const { user } = useAuth();
   const setBudget = useStore((s) => s.setBudget);
   const budget = useStore((s) => s.budget);
-  const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastFetchRef = useRef<number>(0);
 
   const fetchBudget = useCallback(async () => {
     if (!user) return;
@@ -56,7 +63,7 @@ export function useBudget() {
         return;
       }
 
-      setBudget({
+      const validated = {
         id: String(data.id),
         amount: Math.round(amount * 100) / 100,  // normalize to 2dp
         currency,
@@ -64,25 +71,69 @@ export function useBudget() {
         startDate: String(data.start_date),
         endDate: String(data.end_date),
         userId: String(data.user_id),
-      });
+      };
+
+      setBudget(validated);
+      lastFetchRef.current = Date.now();
+
+      // Write to cache after successful fetch (account-isolated by userId)
+      void setCachedBudget(user.id, validated);
     } else {
       // No active budget — clear any stale cached budget
       setBudget(null);
+      lastFetchRef.current = Date.now();
+      void setCachedBudget(user.id, null);
     }
   }, [user, setBudget]);
 
-  // Fetch on mount when user available and no budget cached
-  useEffect(() => {
-    if (!user || budget) return;
-    fetchBudget();
-  }, [user, budget, fetchBudget]);
-
-  // EDGE-01 FIX: Refresh budget every 5 minutes to detect expiry at runtime
+  // On mount: hydrate from IndexedDB cache first, then fetch from Supabase
   useEffect(() => {
     if (!user) return;
-    refreshTimerRef.current = setInterval(fetchBudget, 5 * 60 * 1000);
+    if (budget) return; // already hydrated in memory
+
+    let cancelled = false;
+
+    async function hydrate() {
+      if (!user) return;
+      // Try cache first for instant paint
+      const cached = await getCachedBudget(user.id);
+      if (cached !== null && !cancelled) {
+        setBudget(cached);
+        // Still revalidate from network in background — cache may be stale
+      }
+      if (!cancelled) {
+        await fetchBudget();
+      }
+    }
+
+    void hydrate();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  // Revalidate on window focus and visibility restore — replaces setInterval polling.
+  // A 2-minute cooldown prevents redundant fetches from rapid tab-switching.
+  useEffect(() => {
+    if (!user) return;
+
+    function maybeRevalidate() {
+      if (Date.now() - lastFetchRef.current < REVALIDATE_COOLDOWN_MS) return;
+      void fetchBudget();
+    }
+
+    function onVisibilityChange() {
+      if (document.visibilityState === 'visible') maybeRevalidate();
+    }
+
+    function onFocus() {
+      maybeRevalidate();
+    }
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', onFocus);
     return () => {
-      if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('focus', onFocus);
     };
   }, [user, fetchBudget]);
 
@@ -114,7 +165,7 @@ export function useBudget() {
 
       if (error) throw error;
 
-      setBudget({
+      const validated = {
         id: data.id,
         amount: Math.round(Number(data.amount) * 100) / 100,
         currency: isValidCurrency(data.currency) ? data.currency : 'INR',
@@ -124,7 +175,11 @@ export function useBudget() {
         startDate: data.start_date,
         endDate: data.end_date,
         userId: data.user_id,
-      });
+      };
+
+      setBudget(validated);
+      lastFetchRef.current = Date.now();
+      void setCachedBudget(user.id, validated);
     },
     [user, setBudget]
   );
@@ -151,7 +206,9 @@ export function useBudget() {
 
       if (error) throw error;
       const confirmed = Math.round(Number(data.amount) * 100) / 100;
-      setBudget({ ...budget, amount: confirmed });
+      const updated = { ...budget, amount: confirmed };
+      setBudget(updated);
+      void setCachedBudget(user.id, updated);
       return confirmed;
     },
     [user, budget, setBudget]

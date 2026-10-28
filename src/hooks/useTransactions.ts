@@ -6,6 +6,7 @@ import { useStore } from '@/lib/store';
 import { pendingDeleteTimers, pendingDeletes } from '@/lib/pendingDeletes';
 import { useAuth } from './useAuth';
 import { generateId, validateAmount } from '@/lib/utils';
+import { getCachedTransactions, setCachedTransactions } from '@/lib/cache';
 
 // Stable module-level singleton — no re-instantiation on render
 const supabase = getSupabaseBrowserClient();
@@ -28,6 +29,19 @@ export function useTransactions() {
   const addTx = useStore((s) => s.addTransaction);
   const deleteTx = useStore((s) => s.deleteTransaction);
   const setTransactions = useStore((s) => s.setTransactions);
+
+  const normaliseRow = (t: TransactionRow) => {
+    const amount = Number(t.amount);
+    return {
+      id: String(t.id),
+      amount: isFinite(amount) ? amount : 0,
+      category: String(t.category || 'other'),
+      comment: t.comment ? String(t.comment).slice(0, 200) : null,
+      created_at: String(t.created_at),
+      userId: String(t.user_id),
+      budgetId: String(t.budget_id),
+    };
+  };
 
   const fetchTransactions = useCallback(async () => {
     if (!user || !budget) return;
@@ -52,28 +66,44 @@ export function useTransactions() {
     }
 
     if (data) {
-      setTransactions(
-        data
-          // Keep rows pending deletion hidden until the DB delete lands
-          .filter((t: TransactionRow) => !pendingDeletes.has(String(t.id)))
-          .map((t: TransactionRow) => {
-            const amount = Number(t.amount);
-            return {
-              id: String(t.id),
-              amount: isFinite(amount) ? amount : 0,
-              category: String(t.category || 'other'),
-              comment: t.comment ? String(t.comment).slice(0, 200) : null,
-              created_at: String(t.created_at),
-              userId: String(t.user_id),
-              budgetId: String(t.budget_id),
-            };
-          })
-      );
+      const normalised = data
+        // Keep rows pending deletion hidden until the DB delete lands
+        .filter((t: TransactionRow) => !pendingDeletes.has(String(t.id)))
+        .map((t: TransactionRow) => normaliseRow(t));
+
+      setTransactions(normalised);
+      // Write to cache after successful fetch (account + budget isolated)
+      void setCachedTransactions(user.id, budget.id, normalised);
     }
   }, [user, budget, setTransactions]);
 
   useEffect(() => {
-    if (user && budget) fetchTransactions();
+    if (!user || !budget) return;
+
+    // DAT-05: reject mismatched ownership before any fetch
+    if (budget.userId !== user.id) {
+      setTransactions([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function hydrate() {
+      if (!user || !budget) return;
+      // Hydrate from IndexedDB for instant display
+      const cached = await getCachedTransactions(user.id, budget.id);
+      if (cached !== null && !cancelled) {
+        // Filter pending deletes from cached data too
+        const filtered = cached.filter((t) => !pendingDeletes.has(t.id));
+        setTransactions(filtered);
+      }
+      if (!cancelled) {
+        await fetchTransactions();
+      }
+    }
+
+    void hydrate();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, budget?.id]);
 
@@ -131,7 +161,7 @@ export function useTransactions() {
 
       // Replace temp with server record
       deleteTx(tempId);
-      addTx({
+      const confirmed = {
         id: data.id,
         amount: Math.round(Number(data.amount) * 100) / 100,
         category: String(data.category),
@@ -139,7 +169,12 @@ export function useTransactions() {
         created_at: data.created_at,
         userId: data.user_id,
         budgetId: data.budget_id,
-      });
+      };
+      addTx(confirmed);
+
+      // Invalidate transaction cache so next hydration gets fresh data
+      const currentTxs = useStore.getState().transactions;
+      void setCachedTransactions(user.id, budget.id, currentTxs);
     },
     [user, budget, addTx, deleteTx]
   );
@@ -179,6 +214,12 @@ export function useTransactions() {
             .eq('id', safeId)
             .eq('user_id', user.id);
           if (error) throw error;
+
+          // Invalidate cache after confirmed delete
+          if (budget) {
+            const currentTxs = useStore.getState().transactions;
+            void setCachedTransactions(user.id, budget.id, currentTxs);
+          }
         } catch (e) {
           console.warn('deleteTransaction: DB delete threw', e);
           // Restore only if a concurrent refresh has not already reinserted it.
@@ -190,7 +231,7 @@ export function useTransactions() {
       }, 5500); // slightly longer than the 5s undo UI to ensure user can tap
       pendingDeleteTimers.set(safeId, timer);
     },
-    [deleteTx, user]
+    [deleteTx, user, budget]
   );
 
   /**

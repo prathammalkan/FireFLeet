@@ -3,7 +3,7 @@
 import { useBudget } from '@/hooks/useBudget';
 import { useTransactions } from '@/hooks/useTransactions';
 import { useStore } from '@/lib/store';
-import { formatCurrency, getSpentAmount, getDaysLeft } from '@/lib/utils';
+import { formatCurrency, getSpentAmount, getDaysLeft, localDateKey } from '@/lib/utils';
 import { CATEGORIES, getCategoryById } from '@/components/budget/CategoryPicker';
 import { Navigation } from '@/components/ui/Navigation';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
@@ -30,7 +30,7 @@ export default function AnalyticsPage() {
       .map((cat) => ({
         id: cat.id,
         name: cat.name,
-        value: transactions.filter((t) => t.category === cat.id).reduce((s, t) => s + t.amount, 0),
+        value: getSpentAmount(transactions.filter((t) => t.category === cat.id)),
         color: cat.color,
         emoji: cat.emoji,
       }))
@@ -41,14 +41,10 @@ export default function AnalyticsPage() {
       const d = new Date();
       d.setDate(d.getDate() - (6 - i));
       const label = d.toLocaleDateString('en-IN', { weekday: 'short' });
-      const dayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      const total = transactions
-        .filter((t) => {
-          const td = new Date(t.created_at);
-          const tStr = `${td.getFullYear()}-${String(td.getMonth() + 1).padStart(2, '0')}-${String(td.getDate()).padStart(2, '0')}`;
-          return tStr === dayStr;
-        })
-        .reduce((s, t) => s + t.amount, 0);
+      const dayStr = localDateKey(d);
+      const total = getSpentAmount(
+        transactions.filter((t) => localDateKey(t.created_at) === dayStr)
+      );
       return { label, total, isToday: i === 6 };
     });
 

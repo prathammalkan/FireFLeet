@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { LogOut, Download, RefreshCw, Moon, Sun, ChevronRight, User, TrendingUp } from 'lucide-react';
 import { Navigation } from '@/components/ui/Navigation';
@@ -11,7 +11,7 @@ import { escapeCsvCell, formatCurrency } from '@/lib/utils';
 import { AddToBudgetSheet } from '@/components/budget/AddToBudgetSheet';
 
 export default function SettingsPage() {
-  const { user, signOut } = useAuth();
+  const { user, loading: authLoading, signOut } = useAuth();
   const budget = useStore((s) => s.budget);
   const transactions = useStore((s) => s.transactions);
   const theme = useStore((s) => s.theme);
@@ -22,6 +22,12 @@ export default function SettingsPage() {
   const [resetting, setResetting] = useState(false);
   const [showTopUp, setShowTopUp] = useState(false);
   const supabase = getSupabaseBrowserClient();
+
+  // Layer 2 auth guard (proxy is Layer 1, RLS is Layer 3)
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) router.replace('/auth');
+  }, [user, authLoading, router]);
 
   async function handleSignOut() {
     setLoggingOut(true);
@@ -80,6 +86,13 @@ export default function SettingsPage() {
 
   return (
     <div className="page-root">
+      {(authLoading || !user) && (
+        <div className="px-5 pt-6 flex flex-col gap-4">
+          <div className="skeleton w-24 h-7" />
+          <div className="skeleton w-full h-20 rounded-3xl" />
+        </div>
+      )}
+      {!authLoading && user && (<>
       <div className="px-5 pb-4" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}>
         <h1 className="text-xl font-black text-white">Settings</h1>
       </div>
@@ -182,6 +195,7 @@ export default function SettingsPage() {
 
       <Navigation />
       <AddToBudgetSheet isOpen={showTopUp} onClose={() => setShowTopUp(false)} />
+      </>)}
     </div>
   );
 }
