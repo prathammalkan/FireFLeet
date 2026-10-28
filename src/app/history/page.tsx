@@ -8,7 +8,7 @@ import { TransactionItem } from '@/components/budget/TransactionItem';
 import { useStore } from '@/lib/store';
 import { useTransactions } from '@/hooks/useTransactions';
 import { useBudget } from '@/hooks/useBudget';
-import { groupTransactionsByDate, formatCurrency } from '@/lib/utils';
+import { groupTransactionsByDate, formatCurrency, getSpentAmount } from '@/lib/utils';
 import { CATEGORIES } from '@/components/budget/CategoryPicker';
 
 export default function HistoryPage() {
@@ -30,7 +30,7 @@ export default function HistoryPage() {
   });
 
   const groups = groupTransactionsByDate(filtered);
-  const total = filtered.reduce((s, t) => s + t.amount, 0);
+  const total = getSpentAmount(filtered);
 
   return (
     <div className="page-root">

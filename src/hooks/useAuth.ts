@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
 import { useStore } from '@/lib/store';
 import { clearPendingDeleteTracking, flushPendingDeletes } from '@/lib/pendingDeletes';
+import { clearUserCache } from '@/lib/cache';
 import type { Session, AuthChangeEvent } from '@supabase/supabase-js';
 import type { User } from '@supabase/supabase-js';
 
@@ -85,6 +86,8 @@ export function useAuth() {
         await flushPendingDeletes((ids) =>
           supabase.from('transactions').delete().in('id', ids).eq('user_id', uid)
         );
+        // Clear account-isolated IndexedDB cache before tearing down the session
+        await clearUserCache(uid);
       }
     } catch { /* best effort */ }
     clearPendingDeleteTracking();

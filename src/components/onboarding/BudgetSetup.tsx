@@ -16,6 +16,8 @@ const CURRENCIES: { code: Currency; name: string; symbol: string }[] = [
   { code: 'EUR', name: 'Euro', symbol: '€' },
   { code: 'GBP', name: 'British Pound', symbol: '£' },
   { code: 'JPY', name: 'Japanese Yen', symbol: '¥' },
+  { code: 'AUD', name: 'Australian Dollar', symbol: 'A$' },
+  { code: 'CAD', name: 'Canadian Dollar', symbol: 'C$' },
 ];
 const PERIODS: { type: PeriodType; label: string; desc: string }[] = [
   { type: 'weekly', label: 'Weekly', desc: 'Resets every 7 days' },
@@ -173,6 +175,9 @@ export function BudgetSetup() {
                   </button>
                 ))}
               </div>
+              {error && (
+                <p className="text-[#ef4444] text-sm text-center mt-2">{error}</p>
+              )}
             </motion.div>
           )}
 
