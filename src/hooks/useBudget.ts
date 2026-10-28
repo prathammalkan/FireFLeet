@@ -35,15 +35,22 @@ export function useBudget() {
 
   const fetchBudget = useCallback(async () => {
     if (!user) return;
+    // Capture userId at call time — used for post-await ownership verification.
+    const callerUserId = user.id;
     const today = toDateInputValue();
     const { data, error } = await supabase
       .from('budgets')
       .select('id, amount, currency, period_type, start_date, end_date, user_id')
-      .eq('user_id', user.id)
+      .eq('user_id', callerUserId)
       .gte('end_date', today)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    // ACCOUNT-TRANSITION GUARD: after the await the active user may have changed
+    // (sign-out, account switch). Discard a response that belongs to a stale session
+    // so it can never populate the new user's store.
+    if (useStore.getState().currentUser?.id !== callerUserId) return;
 
     if (error) {
       console.error('[useBudget] fetch error:', error.message);
@@ -51,6 +58,13 @@ export function useBudget() {
     }
 
     if (data) {
+      // Defence-in-depth: verify the returned row belongs to the caller (RLS + .eq() enforce
+      // this server-side, but an explicit check ensures a logic bug cannot cross user data).
+      if (String(data.user_id) !== callerUserId) {
+        console.error('[useBudget] Cross-user data in response; discarding');
+        return;
+      }
+
       // SEC-04 FIX: Validate all server values before trusting them
       const currency = isValidCurrency(data.currency) ? data.currency : 'INR';
       const periodType = VALID_PERIOD_TYPES.includes(data.period_type as PeriodType)
@@ -70,19 +84,19 @@ export function useBudget() {
         periodType,
         startDate: String(data.start_date),
         endDate: String(data.end_date),
-        userId: String(data.user_id),
+        userId: callerUserId,
       };
 
       setBudget(validated);
       lastFetchRef.current = Date.now();
 
       // Write to cache after successful fetch (account-isolated by userId)
-      void setCachedBudget(user.id, validated);
+      void setCachedBudget(callerUserId, validated);
     } else {
       // No active budget — clear any stale cached budget
       setBudget(null);
       lastFetchRef.current = Date.now();
-      void setCachedBudget(user.id, null);
+      void setCachedBudget(callerUserId, null);
     }
   }, [user, setBudget]);
 
@@ -95,8 +109,11 @@ export function useBudget() {
 
     async function hydrate() {
       if (!user) return;
+      const hydrateUserId = user.id;
       // Try cache first for instant paint
-      const cached = await getCachedBudget(user.id);
+      const cached = await getCachedBudget(hydrateUserId);
+      // Verify the user has not changed since we started the async read
+      if (useStore.getState().currentUser?.id !== hydrateUserId) return;
       if (cached !== null && !cancelled) {
         setBudget(cached);
         // Still revalidate from network in background — cache may be stale

@@ -52,13 +52,28 @@ export function useTransactions() {
       return;
     }
 
+    // ACCOUNT-TRANSITION GUARD: capture identities at call time; discard stale responses.
+    // A slow Supabase response arriving after sign-out or account-switch must not
+    // populate the new user's store with the previous user's transactions.
+    const callerUserId = user.id;
+    const callerBudgetId = budget.id;
+
     const { data, error } = await supabase
       .from('transactions')
       .select('id, amount, category, comment, created_at, user_id, budget_id')
-      .eq('user_id', user.id)
-      .eq('budget_id', budget.id)
+      .eq('user_id', callerUserId)
+      .eq('budget_id', callerBudgetId)
       .order('created_at', { ascending: false })
       .limit(500);
+
+    // After await: verify the active user/budget still match the caller's identity.
+    const currentState = useStore.getState();
+    if (
+      currentState.currentUser?.id !== callerUserId ||
+      currentState.budget?.id !== callerBudgetId
+    ) {
+      return;
+    }
 
     if (error) {
       console.warn('fetchTransactions: database request failed', error.message);
@@ -69,11 +84,17 @@ export function useTransactions() {
       const normalised = data
         // Keep rows pending deletion hidden until the DB delete lands
         .filter((t: TransactionRow) => !pendingDeletes.has(String(t.id)))
+        // Defence-in-depth: ensure every returned row belongs to the caller
+        .filter(
+          (t: TransactionRow) =>
+            String(t.user_id) === callerUserId &&
+            String(t.budget_id) === callerBudgetId
+        )
         .map((t: TransactionRow) => normaliseRow(t));
 
       setTransactions(normalised);
       // Write to cache after successful fetch (account + budget isolated)
-      void setCachedTransactions(user.id, budget.id, normalised);
+      void setCachedTransactions(callerUserId, callerBudgetId, normalised);
     }
   }, [user, budget, setTransactions]);
 
@@ -90,8 +111,18 @@ export function useTransactions() {
 
     async function hydrate() {
       if (!user || !budget) return;
+      const hydrateUserId = user.id;
+      const hydrateBudgetId = budget.id;
       // Hydrate from IndexedDB for instant display
-      const cached = await getCachedTransactions(user.id, budget.id);
+      const cached = await getCachedTransactions(hydrateUserId, hydrateBudgetId);
+      // Verify the user/budget have not changed since we started the async read
+      const state = useStore.getState();
+      if (
+        state.currentUser?.id !== hydrateUserId ||
+        state.budget?.id !== hydrateBudgetId
+      ) {
+        return;
+      }
       if (cached !== null && !cancelled) {
         // Filter pending deletes from cached data too
         const filtered = cached.filter((t) => !pendingDeletes.has(t.id));
