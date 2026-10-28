@@ -36,6 +36,7 @@ export const CategoryPicker = memo(function CategoryPicker({
           <button
             key={cat.id}
             onClick={() => onSelect(cat.id)}
+            aria-pressed={isSelected}
             className="flex flex-col items-center gap-1.5 shrink-0 active:scale-90 transition-transform duration-100"
           >
             <div

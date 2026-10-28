@@ -1,20 +1,28 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
+import { safeNextPath, isTrustedHost } from '@/lib/safe-redirect';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get('code');
-  const next = requestUrl.searchParams.get('next') ?? '/';
+  // SEC: sanitize redirect target — blocks open redirects via ?next=//evil.com
+  const next = safeNextPath(requestUrl.searchParams.get('next'), '/');
   const origin = requestUrl.origin;
 
   if (code) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return NextResponse.redirect(new URL('/auth?error=configuration', origin));
+    }
+
     const cookieStore = await cookies();
     const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      supabaseUrl,
+      supabaseAnonKey,
       {
         cookies: {
           getAll() {
@@ -39,7 +47,8 @@ export async function GET(request: Request) {
       const isLocalEnv = process.env.NODE_ENV === 'development';
       if (isLocalEnv) {
         return NextResponse.redirect(new URL(next, origin));
-      } else if (forwardedHost) {
+      } else if (forwardedHost && isTrustedHost(forwardedHost)) {
+        // Only build URLs from hosts we explicitly trust (never raw headers)
         return NextResponse.redirect(`https://${forwardedHost}${next}`);
       } else {
         return NextResponse.redirect(new URL(next, origin));

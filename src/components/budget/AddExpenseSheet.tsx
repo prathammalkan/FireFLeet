@@ -41,6 +41,7 @@ export const AddExpenseSheet = memo(function AddExpenseSheet({
   }
 
   const handleKey = useCallback((key: string) => {
+    navigator?.vibrate?.(8);
     setError(null);
     setDisplay((prev) => {
       if (key === '⌫') return prev.length > 1 ? prev.slice(0, -1) : '0';
@@ -119,10 +120,12 @@ export const AddExpenseSheet = memo(function AddExpenseSheet({
         <div className="grid grid-cols-3 gap-2">
           {NUMPAD_KEYS.map((key) => (
             <button
+              type="button"
               key={key}
-              onPointerDown={() => handleKey(key)}  // pointerDown = faster than onClick on mobile
+              onClick={() => handleKey(key)}
+              aria-label={key === '⌫' ? 'Backspace' : key}
               className={cn(
-                'h-14 rounded-2xl text-xl font-semibold select-none',
+                'h-14 rounded-2xl text-xl font-semibold select-none numpad-key',
                 'bg-[#1a1a24] border border-[#1f1f2e]',
                 'flex items-center justify-center',
                 'active:bg-[#f97316]/15 active:scale-[0.94] transition-all duration-75',
@@ -159,8 +162,9 @@ export const AddExpenseSheet = memo(function AddExpenseSheet({
             </motion.div>
           ) : (
             <button
+              type="button"
               key="submit"
-              onPointerDown={handleSubmit}
+              onClick={handleSubmit}
               disabled={amount <= 0 || isSubmitting}
               className={cn(
                 'h-14 rounded-2xl font-bold text-lg w-full',

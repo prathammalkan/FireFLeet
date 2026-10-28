@@ -63,7 +63,7 @@ export default function LegalLicenses() {
               In accordance with the Information Technology Act, 2000 and rules made there under (including Rule 5(9)), the name and contact details of the Grievance Officer are provided below:
               <br/><br/>
               <strong>Email:</strong> <a href="mailto:firefleet.app@gmail.com" className="text-[#f97316]">firefleet.app@gmail.com</a><br/>
-              <strong>Note:</strong> Please include "Grievance Officer" in the subject line of your email for prompt attention to your concerns.
+              <strong>Note:</strong> Please include &quot;Grievance Officer&quot; in the subject line of your email for prompt attention to your concerns.
             </p>
           </section>
         </div>

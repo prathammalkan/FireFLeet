@@ -42,6 +42,7 @@ export const AddToBudgetSheet = memo(function AddToBudgetSheet({
   }
 
   const handleKey = useCallback((key: string) => {
+    navigator?.vibrate?.(8);
     setError(null);
     setDisplay((prev) => {
       if (key === '⌫') return prev.length > 1 ? prev.slice(0, -1) : '0';
@@ -65,7 +66,7 @@ export const AddToBudgetSheet = memo(function AddToBudgetSheet({
       await updateBudgetAmount(newTotal);
       setShowSuccess(true);
       setTimeout(handleClose, 900);
-    } catch (e) {
+    } catch {
       setError('Could not update budget. Please try again.');
       setIsSubmitting(false);
     }
@@ -107,8 +108,13 @@ export const AddToBudgetSheet = memo(function AddToBudgetSheet({
         <div className="flex gap-2">
           {QUICK_AMOUNTS.map((qa) => (
             <button
+              type="button"
               key={qa}
-              onPointerDown={() => { setError(null); setDisplay(String(qa)); }}
+              onClick={() => {
+                navigator?.vibrate?.(8);
+                setError(null);
+                setDisplay(String(qa));
+              }}
               className={cn(
                 'flex-1 py-2.5 rounded-xl text-xs font-bold transition-colors duration-100',
                 addAmount === qa
@@ -125,10 +131,12 @@ export const AddToBudgetSheet = memo(function AddToBudgetSheet({
         <div className="grid grid-cols-3 gap-2">
           {NUMPAD_KEYS.map((key) => (
             <button
+              type="button"
               key={key}
-              onPointerDown={() => handleKey(key)}
+              onClick={() => handleKey(key)}
+              aria-label={key === '⌫' ? 'Backspace' : key}
               className={cn(
-                'h-14 rounded-2xl text-xl font-semibold select-none',
+                'h-14 rounded-2xl text-xl font-semibold select-none numpad-key',
                 'bg-[#1a1a24] border border-[#1f1f2e] flex items-center justify-center',
                 'active:bg-[#22c55e]/15 active:scale-[0.94] transition-all duration-75',
                 key === '⌫' ? 'text-[#22c55e]' : 'text-white',
@@ -162,8 +170,9 @@ export const AddToBudgetSheet = memo(function AddToBudgetSheet({
             </motion.div>
           ) : (
             <button
+              type="button"
               key="submit"
-              onPointerDown={handleSubmit}
+              onClick={handleSubmit}
               disabled={addAmount <= 0 || isSubmitting}
               className="h-14 rounded-2xl font-bold text-lg w-full bg-gradient-to-r from-[#22c55e] to-[#16a34a] text-white active:opacity-80 transition-opacity flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
             >

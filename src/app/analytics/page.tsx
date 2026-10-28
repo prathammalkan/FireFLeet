@@ -3,62 +3,83 @@
 import { useBudget } from '@/hooks/useBudget';
 import { useTransactions } from '@/hooks/useTransactions';
 import { useStore } from '@/lib/store';
-import { formatCurrency, getSpentAmount, getDaysLeft } from '@/lib/utils';
+import { formatCurrency, getSpentAmount, getDaysLeft, localDateKey } from '@/lib/utils';
 import { CATEGORIES, getCategoryById } from '@/components/budget/CategoryPicker';
 import { Navigation } from '@/components/ui/Navigation';
-import { memo } from 'react';
+import { useRequireAuth } from '@/hooks/useRequireAuth';
+import { memo, useMemo } from 'react';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
   Tooltip, ResponsiveContainer,
 } from 'recharts';
 
-
 export default function AnalyticsPage() {
+  const { user, loading: authLoading } = useRequireAuth();
   useBudget();
   useTransactions();
 
   const budget = useStore((s) => s.budget);
   const transactions = useStore((s) => s.transactions);
 
-  const spent = getSpentAmount(transactions);
-  const remaining = budget ? Math.max(0, budget.amount - spent) : 0;
+  const analytics = useMemo(() => {
+    const spent = getSpentAmount(transactions);
+    const remaining = budget ? Math.max(0, budget.amount - spent) : 0;
+    const spentPct = budget ? Math.min(100, (spent / budget.amount) * 100) : 0;
 
-  // Category breakdown
-  const catData = [...CATEGORIES]
-    .map((cat) => ({
-      id: cat.id,
-      name: cat.name,
-      value: transactions.filter((t) => t.category === cat.id).reduce((s, t) => s + t.amount, 0),
-      color: cat.color,
-      emoji: cat.emoji,
-    }))
-    .filter((d) => d.value > 0)
-    .sort((a, b) => b.value - a.value);
+    const catData = [...CATEGORIES]
+      .map((cat) => ({
+        id: cat.id,
+        name: cat.name,
+        value: getSpentAmount(transactions.filter((t) => t.category === cat.id)),
+        color: cat.color,
+        emoji: cat.emoji,
+      }))
+      .filter((d) => d.value > 0)
+      .sort((a, b) => b.value - a.value);
 
-  // 7-day daily spending
-  const dailyData = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (6 - i));
-    const label = d.toLocaleDateString('en-IN', { weekday: 'short' });
-    const total = transactions
-      .filter((t) => new Date(t.created_at).toDateString() === d.toDateString())
-      .reduce((s, t) => s + t.amount, 0);
-    return { label, total, isToday: i === 6 };
-  });
+    const dailyData = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (6 - i));
+      const label = d.toLocaleDateString('en-IN', { weekday: 'short' });
+      const dayStr = localDateKey(d);
+      const total = getSpentAmount(
+        transactions.filter((t) => localDateKey(t.created_at) === dayStr)
+      );
+      return { label, total, isToday: i === 6 };
+    });
 
+    const biggestExpense = transactions.length
+      ? transactions.reduce((max, t) => (t.amount > max.amount ? t : max), transactions[0])
+      : null;
+    const topCat = catData[0];
+    const avgExpense = transactions.length ? spent / transactions.length : 0;
+
+    return { spent, remaining, spentPct, catData, dailyData, biggestExpense, topCat, avgExpense };
+  }, [transactions, budget]);
+
+  if (authLoading || !user) {
+    return (
+      <div className="page-root">
+        <div
+          className="px-5 pb-3"
+          style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}
+        >
+          <div className="skeleton w-28 h-7 mb-4" />
+          <div className="skeleton w-full h-32 rounded-2xl mb-4" />
+          <div className="skeleton w-full h-48 rounded-2xl mb-4" />
+          <div className="skeleton w-full h-48 rounded-2xl" />
+        </div>
+        <Navigation />
+      </div>
+    );
+  }
+
+  const { spent, remaining, spentPct, catData, dailyData, biggestExpense, topCat, avgExpense } = analytics;
   const hasData = spent > 0;
-  const biggestExpense = transactions.length
-    ? transactions.reduce((max, t) => (t.amount > max.amount ? t : max), transactions[0])
-    : null;
-  const topCat = catData[0];
-  const avgExpense = transactions.length ? spent / transactions.length : 0;
-  const spentPct = budget ? Math.min(100, (spent / budget.amount) * 100) : 0;
-
-  const navBottom = 'calc(64px + env(safe-area-inset-bottom, 0px))';
 
   if (!budget) {
     return (
-      <div className="page-root flex flex-col items-center justify-center" style={{ paddingBottom: navBottom }}>
+      <div className="page-root flex flex-col items-center justify-center">
         <p className="text-5xl mb-4">📊</p>
         <p className="text-white font-bold text-lg">No budget set yet</p>
         <p className="text-[#9ca3af] text-sm mt-1">Set a budget to see analytics</p>
@@ -68,10 +89,7 @@ export default function AnalyticsPage() {
   }
 
   return (
-    <div
-      className="page-root overflow-y-auto scroll-container"
-      style={{ paddingBottom: `calc(${navBottom} + 16px)` }}
-    >
+    <div className="page-root">
       {/* Header */}
       <div className="px-5" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}>
         <h1 className="text-xl font-black text-white">Analytics</h1>
@@ -80,7 +98,7 @@ export default function AnalyticsPage() {
         </p>
       </div>
 
-      <div className="px-5 pt-4 flex flex-col gap-4">
+      <div className="px-5 pt-4 pb-4 flex flex-col gap-4">
         {/* Summary */}
         <div className="grid grid-cols-2 gap-3">
           <SummaryCard label="Spent" value={formatCurrency(spent, budget.currency)} color="#ef4444" emoji="💸" />
@@ -127,7 +145,7 @@ export default function AnalyticsPage() {
                 />
                 <Bar dataKey="total" radius={[5, 5, 0, 0]}>
                   {dailyData.map((entry, i) => (
-                    <Cell key={i} fill={entry.isToday ? '#f97316' : entry.total > 0 ? '#1f1f2e' : '#13131a'} />
+                    <Cell key={i} fill={entry.isToday ? '#f97316' : entry.total > 0 ? '#2a2a3a' : '#1a1a24'} />
                   ))}
                 </Bar>
               </BarChart>

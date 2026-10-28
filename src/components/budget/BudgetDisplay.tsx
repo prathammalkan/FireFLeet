@@ -16,6 +16,7 @@ import {
   getDaysLeft,
   formatCurrency,
   getCurrencySymbol,
+  localDateKey,
 } from '@/lib/utils';
 
 export const BudgetDisplay = memo(function BudgetDisplay() {
@@ -34,9 +35,9 @@ export const BudgetDisplay = memo(function BudgetDisplay() {
   const symbol = getCurrencySymbol(budget.currency);
   const isLow = percentage >= 75;
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayKey = localDateKey(new Date());
   const todaySpent = transactions
-    .filter((t) => t.created_at.slice(0, 10) === todayStr)
+    .filter((t) => localDateKey(t.created_at) === todayKey)
     .reduce((s, t) => s + t.amount, 0);
 
   return (

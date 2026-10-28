@@ -1,7 +1,33 @@
 import type { NextConfig } from "next";
 
-// Build-time cache version — forces SW to update on new deploy
-const DEPLOY_VERSION = Date.now().toString(36);
+const isDev = process.env.NODE_ENV === "development";
+
+// Build once so the CSP string is stable across requests
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  // 'unsafe-inline' is required for Next.js hydration bootstrap scripts (no nonce/SSR
+  // headers available for statically prerendered pages). 'unsafe-eval' is only needed
+  // in development (React debugging) and is intentionally omitted in production.
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://accounts.google.com`,
+  // Inline style attributes are set by React/Tailwind; no external stylesheets are used
+  // (fonts are self-hosted via next/font).
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self'",
+  // No remote images are rendered; data: covers inline SVGs, blob: covers export previews
+  "img-src 'self' data: blob:",
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://accounts.google.com",
+  "frame-src https://accounts.google.com",
+  "worker-src 'self'",
+  "manifest-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  // Never upgrade localhost dev requests to https
+  ...(isDev ? [] : ["upgrade-insecure-requests"]),
+]
+  .join("; ")
+  .trim();
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -43,28 +69,7 @@ const nextConfig: NextConfig = {
 
           // ── Content Security Policy ───────────────────────────────────
           // Only allows resources from our own origin + Supabase + Google Auth
-          {
-            key: "Content-Security-Policy",
-            value: [
-              "default-src 'self'",
-              // Scripts: self + inline (Next.js requires) + Vercel analytics
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com",
-              // Styles: self + inline (Tailwind requires)
-              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-              // Fonts
-              "font-src 'self' https://fonts.gstatic.com",
-              // Images: self + data URIs (inline SVGs) + Google user avatars
-              "img-src 'self' data: https: blob:",
-              // API calls: self (Next.js) + Supabase
-              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://accounts.google.com",
-              // Frames: Google OAuth popup
-              "frame-src https://accounts.google.com",
-              // Service worker
-              "worker-src 'self'",
-              // Manifests
-              "manifest-src 'self'",
-            ].join("; "),
-          },
+          { key: "Content-Security-Policy", value: CONTENT_SECURITY_POLICY },
 
           // ── Cross-origin isolation (enables SharedArrayBuffer) ───────
           { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" }, // allow-popups needed for Google OAuth

@@ -1,37 +1,39 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { WifiOff, Wifi } from 'lucide-react';
 
+function subscribeOnline(callback: () => void) {
+  window.addEventListener('online', callback);
+  window.addEventListener('offline', callback);
+  return () => {
+    window.removeEventListener('online', callback);
+    window.removeEventListener('offline', callback);
+  };
+}
+
+function getSnapshot() {
+  return typeof navigator !== 'undefined' ? navigator.onLine : true;
+}
+
+function getServerSnapshot() {
+  return true;
+}
+
 export function OfflineBanner() {
-  const [isOnline, setIsOnline] = useState(true);
-  const [wasOffline, setWasOffline] = useState(false);
+  const isOnline = useSyncExternalStore(subscribeOnline, getSnapshot, getServerSnapshot);
   const [showReconnected, setShowReconnected] = useState(false);
+  const prevOnlineRef = useRef(true);
 
   useEffect(() => {
-    setIsOnline(navigator.onLine);
-
-    function handleOnline() {
-      setIsOnline(true);
-      if (wasOffline) {
-        setShowReconnected(true);
-        setTimeout(() => setShowReconnected(false), 3000);
-      }
+    if (!prevOnlineRef.current && isOnline) {
+      setShowReconnected(true);
+      const timer = setTimeout(() => setShowReconnected(false), 3000);
+      return () => clearTimeout(timer);
     }
-
-    function handleOffline() {
-      setIsOnline(false);
-      setWasOffline(true);
-    }
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, [wasOffline]);
+    prevOnlineRef.current = isOnline;
+  }, [isOnline]);
 
   return (
     <AnimatePresence>
@@ -60,7 +62,7 @@ export function OfflineBanner() {
             ) : (
               <>
                 <WifiOff className="w-4 h-4" />
-                You&apos;re offline — data saved locally
+                No connection — changes may not save
               </>
             )}
           </div>

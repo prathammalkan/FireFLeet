@@ -79,7 +79,7 @@ export default function PrivacyPolicy() {
           </section>
 
           <section>
-            <h2 className="text-base font-bold text-white mb-2">7. Children's Privacy</h2>
+            <h2 className="text-base font-bold text-white mb-2">7. Children&apos;s Privacy</h2>
             <p className="text-sm text-[#9ca3af] leading-relaxed">
               FireFleet is not intended for use by children under the age of 13. We do not knowingly collect personal information from children under 13.
             </p>

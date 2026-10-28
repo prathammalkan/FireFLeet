@@ -36,24 +36,80 @@ export function formatCurrency(amount: number, currency: Currency = 'INR'): stri
   }).format(safeAmount);
 }
 
+/** Escape a value for a CSV cell and neutralise spreadsheet formulas. */
+export function escapeCsvCell(value: unknown): string {
+  const text = String(value ?? '');
+  const safeText = /^[=+\-@]/.test(text) ? `'${text}` : text;
+  return `"${safeText.replace(/"/g, '""')}"`;
+}
+
 export function getCurrencySymbol(currency: Currency = 'INR'): string {
   return CURRENCY_CONFIG[isValidCurrency(currency) ? currency : 'INR']?.symbol || '₹';
 }
 
 // ─── Date Utilities ───────────────────────────────────────────────────────────
 
+/**
+ * Local calendar-date key (YYYY-MM-DD) for a Date or ISO string.
+ * Grouping/labels must use the *user's* calendar date — a transaction made
+ * at 2am local time is "Today" even when its UTC date is still yesterday.
+ */
+export function localDateKey(date: string | Date): string {
+  // Bare date strings are already calendar dates — never re-parse them
+  // (parsing 'YYYY-MM-DD' yields UTC midnight, which shifts a day in
+  // negative-UTC-offset timezones).
+  if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
+  const d = typeof date === 'string' ? new Date(date) : date;
+  if (isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function shiftDaysKey(base: Date, days: number): string {
+  const d = new Date(base);
+  d.setDate(d.getDate() + days);
+  return localDateKey(d);
+}
+
+function parseDateOnly(date: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const d = new Date(date);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const [y, m, day] = date.split('-').map(Number);
+  const d = new Date(y, m - 1, day);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/** Format a Date as YYYY-MM-DD using *local* calendar components. */
+export function toDateInputValue(date: Date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export function getDaysLeft(endDate: string): number {
-  // Use UTC midnight comparison to avoid timezone drift
-  const todayUTC = new Date();
-  todayUTC.setUTCHours(0, 0, 0, 0);
-  const endUTC = new Date(endDate + 'T00:00:00Z');
-  const diff = endUTC.getTime() - todayUTC.getTime();
-  return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+  const end = parseDateOnly(endDate);
+  if (!end) return 0;
+  const todayLocal = new Date();
+  todayLocal.setHours(0, 0, 0, 0);
+  // Math.round absorbs DST days that are 23h/25h long
+  const diffDays = Math.round((end.getTime() - todayLocal.getTime()) / (1000 * 60 * 60 * 24));
+  return Math.max(0, diffDays);
 }
 
 export function formatDate(date: string | Date): string {
-  const d = typeof date === 'string' ? new Date(date) : date;
-  if (isNaN(d.getTime())) return '—';
+  let d: Date | null;
+  if (typeof date === 'string') {
+    // Construct from components so the calendar date is preserved exactly
+    d = parseDateOnly(date);
+  } else {
+    d = date;
+  }
+  if (!d || isNaN(d.getTime())) return '—';
   return new Intl.DateTimeFormat('en-IN', {
     day: 'numeric',
     month: 'short',
@@ -72,24 +128,13 @@ export function formatTime(date: string | Date): string {
 }
 
 export function isToday(date: string | Date): boolean {
-  const d = typeof date === 'string' ? new Date(date) : date;
-  const today = new Date();
-  return (
-    d.getUTCFullYear() === today.getUTCFullYear() &&
-    d.getUTCMonth() === today.getUTCMonth() &&
-    d.getUTCDate() === today.getUTCDate()
-  );
+  const key = localDateKey(date);
+  return key !== '' && key === localDateKey(new Date());
 }
 
 export function isYesterday(date: string | Date): boolean {
-  const d = typeof date === 'string' ? new Date(date) : date;
-  const yesterday = new Date();
-  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
-  return (
-    d.getUTCFullYear() === yesterday.getUTCFullYear() &&
-    d.getUTCMonth() === yesterday.getUTCMonth() &&
-    d.getUTCDate() === yesterday.getUTCDate()
-  );
+  const key = localDateKey(date);
+  return key !== '' && key === shiftDaysKey(new Date(), -1);
 }
 
 export function getRelativeDate(date: string | Date): string {
@@ -143,7 +188,7 @@ export function getBudgetColor(percentage: number): string {
   return '#ef4444';
 }
 
-// ─── Transaction Grouping — UTC-based to avoid timezone grouping bugs ─────────
+// ─── Transaction Grouping — local calendar dates avoid timezone grouping bugs ─
 
 export interface TransactionGroup {
   date: string;      // YYYY-MM-DD in UTC
@@ -156,17 +201,17 @@ export function groupTransactionsByDate(transactions: Transaction[]): Transactio
   const groups: Map<string, Transaction[]> = new Map();
 
   for (const t of transactions) {
-    // Use UTC date string (first 10 chars of ISO) — prevents timezone date-drift
-    const utcDate = typeof t.created_at === 'string'
-      ? t.created_at.slice(0, 10)           // "2025-01-15" from "2025-01-15T18:30:00Z"
-      : new Date(t.created_at).toISOString().slice(0, 10);
-    if (!groups.has(utcDate)) groups.set(utcDate, []);
-    groups.get(utcDate)!.push(t);
+    // Group by the *user's local* calendar date so entries logged at 2am
+    // don't land under "Yesterday".
+    const key = localDateKey(t.created_at);
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(t);
   }
 
   return Array.from(groups.entries()).map(([date, txns]) => ({
     date,
-    label: getRelativeDate(date + 'T00:00:00Z'),
+    label: getRelativeDate(date),
     total: getSpentAmount(txns),     // use integer-safe sum
     transactions: txns,
   }));
