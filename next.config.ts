@@ -31,6 +31,7 @@ const CONTENT_SECURITY_POLICY = [
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  poweredByHeader: false,
   transpilePackages: ["motion"],
 
   experimental: {
@@ -47,6 +48,10 @@ const nextConfig: NextConfig = {
 
           // ── MIME-type sniffing protection ────────────────────────────
           { key: "X-Content-Type-Options", value: "nosniff" },
+
+          // ── Disable DNS prefetching & cross-domain policy files ──────
+          { key: "X-DNS-Prefetch-Control", value: "off" },
+          { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
 
           // ── Referrer — don't leak URL to third parties ───────────────
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
@@ -71,9 +76,17 @@ const nextConfig: NextConfig = {
           // Only allows resources from our own origin + Supabase + Google Auth
           { key: "Content-Security-Policy", value: CONTENT_SECURITY_POLICY },
 
-          // ── Cross-origin isolation (enables SharedArrayBuffer) ───────
+          // ── Cross-origin opener / embedder policies ───────────────────
           { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" }, // allow-popups needed for Google OAuth
-          { key: "Cross-Origin-Embedder-Policy", value: "unsafe-none" }, // required for Supabase realtime
+          { key: "Cross-Origin-Embedder-Policy", value: "unsafe-none" }, // required for Supabase realtime / OAuth
+        ],
+      },
+
+      // ── Auth pages & callbacks: never cache in intermediaries ────────
+      {
+        source: "/auth/:path*",
+        headers: [
+          { key: "Cache-Control", value: "private, no-store, max-age=0" },
         ],
       },
 

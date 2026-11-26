@@ -2,16 +2,24 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogOut, Download, RefreshCw, Moon, Sun, ChevronRight, User, TrendingUp } from 'lucide-react';
+import { LogOut, Download, RefreshCw, Moon, Sun, ChevronRight, User, TrendingUp, AlertTriangle } from 'lucide-react';
 import { Navigation } from '@/components/ui/Navigation';
+import { BottomSheet } from '@/components/ui/BottomSheet';
 import { useAuth } from '@/hooks/useAuth';
+import { useBudget } from '@/hooks/useBudget';
+import { useTransactions } from '@/hooks/useTransactions';
 import { useStore } from '@/lib/store';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
+import { clearUserCache } from '@/lib/cache';
+import { clearPendingDeleteTracking } from '@/lib/pendingDeletes';
+import { assertMutationAllowed, RateLimitError, resetFetchState } from '@/lib/rateLimit';
 import { escapeCsvCell, formatCurrency } from '@/lib/utils';
 import { AddToBudgetSheet } from '@/components/budget/AddToBudgetSheet';
 
 export default function SettingsPage() {
   const { user, loading: authLoading, signOut } = useAuth();
+  useBudget();
+  useTransactions();
   const budget = useStore((s) => s.budget);
   const transactions = useStore((s) => s.transactions);
   const theme = useStore((s) => s.theme);
@@ -20,6 +28,8 @@ export default function SettingsPage() {
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<{ type: 'error' | 'info'; text: string } | null>(null);
   const [showTopUp, setShowTopUp] = useState(false);
   const supabase = getSupabaseBrowserClient();
 
@@ -36,10 +46,11 @@ export default function SettingsPage() {
   }
 
   async function handleReset() {
-    if (!confirm('Reset all data? This permanently deletes your budget and all transactions from the server. This cannot be undone.')) return;
-    if (!user) return;
+    if (!user || resetting) return;
     setResetting(true);
+    setStatusMessage(null);
     try {
+      assertMutationAllowed(`budget-reset:${user.id}`);
       if (budget?.id) {
         const { error } = await supabase
           .from('budgets')
@@ -47,25 +58,36 @@ export default function SettingsPage() {
           .eq('id', budget.id)
           .eq('user_id', user.id);
         if (error) {
-          alert('Failed to reset data. Please try again.');
+          setStatusMessage({ type: 'error', text: 'Failed to reset data. Please try again.' });
           setResetting(false);
+          setConfirmResetOpen(false);
           return;
         }
       }
+      clearPendingDeleteTracking();
+      resetFetchState();
+      await clearUserCache(user.id);
       reset();
+      setConfirmResetOpen(false);
       router.replace('/setup');
-    } catch {
-      alert('Failed to reset data. Please try again.');
+    } catch (e: unknown) {
+      const text = e instanceof RateLimitError ? e.message : 'Failed to reset data. Please try again.';
+      setStatusMessage({ type: 'error', text });
       setResetting(false);
+      setConfirmResetOpen(false);
     }
   }
 
   function handleExport() {
-    if (transactions.length === 0) { alert('No transactions to export.'); return; }
+    if (transactions.length === 0) {
+      setStatusMessage({ type: 'info', text: 'No transactions to export yet.' });
+      return;
+    }
+    setStatusMessage(null);
     const rows = [
       ['Date', 'Category', 'Amount', 'Currency', 'Comment'],
       ...transactions.map((t) => [
-        new Date(t.created_at).toLocaleDateString(),
+        new Date(t.created_at).toISOString(),
         t.category,
         t.amount.toString(),
         budget?.currency ?? 'INR',
@@ -75,13 +97,14 @@ export default function SettingsPage() {
     const csv = rows
       .map((r) => r.map(escapeCsvCell).join(','))
       .join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `firefleet-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setStatusMessage({ type: 'info', text: `Exported ${transactions.length} transactions.` });
   }
 
   return (
@@ -146,6 +169,22 @@ export default function SettingsPage() {
           </div>
         </SettingsSection>
 
+        {statusMessage && (
+          <div
+            role={statusMessage.type === 'error' ? 'alert' : 'status'}
+            className={`rounded-2xl px-4 py-3 text-sm flex items-center justify-between gap-3 border ${
+              statusMessage.type === 'error'
+                ? 'bg-[#3a1515] border-[#ef4444]/30 text-[#fecaca]'
+                : 'bg-[#13131a] border-[#1f1f2e] text-[#9ca3af]'
+            }`}
+          >
+            <span>{statusMessage.text}</span>
+            <button type="button" onClick={() => setStatusMessage(null)} className="text-xs font-bold text-white shrink-0">
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {/* Data */}
         <SettingsSection title="Data">
           <ActionRow icon={<Download className="w-4 h-4" />} label="Export to CSV" onClick={handleExport} />
@@ -156,7 +195,7 @@ export default function SettingsPage() {
                 : <RefreshCw className="w-4 h-4" />
             }
             label={resetting ? 'Resetting…' : 'Reset all data'}
-            onClick={handleReset}
+            onClick={() => setConfirmResetOpen(true)}
             danger
           />
         </SettingsSection>
@@ -195,6 +234,38 @@ export default function SettingsPage() {
 
       <Navigation />
       <AddToBudgetSheet isOpen={showTopUp} onClose={() => setShowTopUp(false)} />
+      <BottomSheet
+        isOpen={confirmResetOpen}
+        onClose={() => !resetting && setConfirmResetOpen(false)}
+        title="Reset all data?"
+      >
+        <div className="px-5 py-4 flex flex-col gap-4">
+          <div className="flex items-start gap-3 bg-[#ef4444]/10 border border-[#ef4444]/20 rounded-2xl p-4">
+            <AlertTriangle className="w-5 h-5 text-[#ef4444] shrink-0 mt-0.5" />
+            <p className="text-sm text-[#9ca3af] leading-relaxed">
+              This permanently deletes your active budget, all transactions, and cached data on this device. This cannot be undone.
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              disabled={resetting}
+              onClick={() => setConfirmResetOpen(false)}
+              className="flex-1 h-12 rounded-2xl bg-[#1a1a24] border border-[#1f1f2e] text-white font-semibold active:opacity-80 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={resetting}
+              onClick={handleReset}
+              className="flex-1 h-12 rounded-2xl bg-[#ef4444] text-white font-bold active:opacity-80 disabled:opacity-50"
+            >
+              {resetting ? 'Resetting…' : 'Delete Everything'}
+            </button>
+          </div>
+        </div>
+      </BottomSheet>
       </>)}
     </div>
   );

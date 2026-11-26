@@ -3,10 +3,11 @@
 import { useBudget } from '@/hooks/useBudget';
 import { useTransactions } from '@/hooks/useTransactions';
 import { useStore } from '@/lib/store';
-import { formatCurrency, getSpentAmount, getDaysLeft, localDateKey } from '@/lib/utils';
+import { formatCurrency, getBudgetColor, getSpentAmount, getDaysLeft, localDateKey } from '@/lib/utils';
 import { CATEGORIES, getCategoryById } from '@/components/budget/CategoryPicker';
 import { Navigation } from '@/components/ui/Navigation';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
+import Link from 'next/link';
 import { memo, useMemo } from 'react';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
@@ -79,10 +80,16 @@ export default function AnalyticsPage() {
 
   if (!budget) {
     return (
-      <div className="page-root flex flex-col items-center justify-center">
+      <div className="page-root flex flex-col items-center justify-center px-5 text-center">
         <p className="text-5xl mb-4">📊</p>
         <p className="text-white font-bold text-lg">No budget set yet</p>
-        <p className="text-[#9ca3af] text-sm mt-1">Set a budget to see analytics</p>
+        <p className="text-[#9ca3af] text-sm mt-1 mb-5">Set a budget to see analytics</p>
+        <Link
+          href="/setup"
+          className="px-6 py-3 rounded-2xl bg-gradient-to-r from-[#f97316] to-[#ea580c] text-white font-bold active:opacity-80 transition-opacity"
+        >
+          Set Budget →
+        </Link>
         <Navigation />
       </div>
     );
@@ -109,14 +116,17 @@ export default function AnalyticsPage() {
         <div className="bg-[#13131a] border border-[#1f1f2e] rounded-2xl p-4">
           <div className="flex justify-between items-center mb-3">
             <p className="text-sm font-bold text-white">Budget used</p>
-            <p className="text-sm font-bold" style={{ color: spentPct > 90 ? '#ef4444' : '#22c55e' }}>
+            <p className="text-sm font-bold" style={{ color: getBudgetColor(spentPct) }}>
               {spentPct.toFixed(1)}%
             </p>
           </div>
           <div className="w-full h-3 bg-[#1a1a24] rounded-full overflow-hidden">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-[#f97316] to-[#ea580c] transition-all duration-700"
-              style={{ width: `${spentPct}%` }}
+              className="h-full rounded-full transition-all duration-700"
+              style={{
+                width: `${spentPct}%`,
+                background: getBudgetColor(spentPct),
+              }}
             />
           </div>
           <div className="flex justify-between mt-2">

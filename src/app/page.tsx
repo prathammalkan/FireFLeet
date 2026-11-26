@@ -7,6 +7,7 @@ import { BudgetDisplay } from '@/components/budget/BudgetDisplay';
 import { TransactionItem } from '@/components/budget/TransactionItem';
 import { Navigation } from '@/components/ui/Navigation';
 import { OfflineBanner } from '@/components/pwa/OfflineBanner';
+import { UndoToast } from '@/components/ui/UndoToast';
 import { useStore } from '@/lib/store';
 import { groupTransactionsByDate, formatCurrency } from '@/lib/utils';
 import { useTransactions } from '@/hooks/useTransactions';
@@ -46,42 +47,6 @@ function SearchParamsHandler({ onAddAction }: { onAddAction: () => void }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [budget?.id]);
   return null;
-}
-
-function UndoToast({
-  message,
-  onUndo,
-  onDismiss,
-}: {
-  message: string;
-  onUndo: () => void;
-  onDismiss: () => void;
-}) {
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    timerRef.current = setTimeout(onDismiss, 5000);
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 8 }}
-      transition={{ duration: 0.18 }}
-      className="fixed left-4 right-4 z-[60] flex items-center justify-between gap-3 bg-[#1a1a24] border border-[#1f1f2e] rounded-2xl px-4 py-3 shadow-xl"
-      style={{ bottom: 'calc(80px + env(safe-area-inset-bottom, 0px))' }}
-    >
-      <span className="text-white text-sm font-medium">{message}</span>
-      <button
-        onClick={onUndo}
-        className="text-[#f97316] text-sm font-bold shrink-0 active:opacity-70"
-      >
-        Undo
-      </button>
-    </motion.div>
-  );
 }
 
 function HomeContent() {
@@ -218,7 +183,7 @@ function HomeContent() {
       </div>
 
       {/* Budget */}
-      {budget ? <BudgetDisplay /> : <NoBudgetCard onSetup={() => router.push('/setup')} />}
+      {budget ? <BudgetDisplay onTopUp={openTopUp} /> : <NoBudgetCard onSetup={() => router.push('/setup')} />}
 
       {/* Recent transactions */}
       <div className="px-5 mt-1 pb-6">

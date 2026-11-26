@@ -5,6 +5,8 @@ import { getSupabaseBrowserClient } from '@/lib/supabase';
 import { useStore } from '@/lib/store';
 import { clearPendingDeleteTracking, flushPendingDeletes } from '@/lib/pendingDeletes';
 import { clearUserCache } from '@/lib/cache';
+import { assertOtpAllowed, resetFetchState } from '@/lib/rateLimit';
+import { isValidEmail } from '@/lib/utils';
 import type { Session, AuthChangeEvent } from '@supabase/supabase-js';
 import type { User } from '@supabase/supabase-js';
 
@@ -25,6 +27,16 @@ export function useAuth() {
     const applySession = (session: Session | null) => {
       if (!active) return;
       const u = session?.user ?? null;
+      const prevId = userRef.current?.id ?? null;
+      const nextId = u?.id ?? null;
+
+      // Isolate accounts if session changes externally (token expiry, multi-tab switch)
+      if (prevId && prevId !== nextId) {
+        clearPendingDeleteTracking();
+        resetFetchState();
+        reset();
+      }
+
       setUser(u);
       userRef.current = u;
       setCurrentUser(u
@@ -51,16 +63,19 @@ export function useAuth() {
       void subscription.unsubscribe();
     };
   // supabase is a stable module-level singleton — safe to omit from deps
-  }, [setCurrentUser]);
+  }, [setCurrentUser, reset]);
 
   const signIn = useCallback(async (email: string) => {
-    // Basic email format guard before hitting network
-    if (!email || !email.includes('@')) throw new Error('Invalid email address');
+    // Strict email format & client rate limit before hitting Supabase Auth
+    const cleanEmail = email.trim().toLowerCase();
+    if (!isValidEmail(cleanEmail)) throw new Error('Please enter a valid email address.');
+    assertOtpAllowed(cleanEmail);
+
     const origin = typeof window !== 'undefined'
       ? window.location.origin
       : (process.env.NEXT_PUBLIC_APP_URL || '');
     const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim().toLowerCase(),
+      email: cleanEmail,
       options: { emailRedirectTo: `${origin}/auth/callback` },
     });
     if (error) throw error;
@@ -91,6 +106,7 @@ export function useAuth() {
       }
     } catch { /* best effort */ }
     clearPendingDeleteTracking();
+    resetFetchState();
 
     // SEC-07 FIX: Clear all in-memory financial data before signing out.
     // Prevents the next user on the same device from seeing stale budget data.

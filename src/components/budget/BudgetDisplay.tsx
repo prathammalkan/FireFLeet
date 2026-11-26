@@ -1,8 +1,7 @@
 'use client';
 
-import { memo, useState } from 'react';
+import { memo, useState, useEffect } from 'react';
 import { motion, useSpring, useTransform } from 'motion/react';
-import { useEffect } from 'react';
 import { Plus } from 'lucide-react';
 import { NumberCounter } from '@/components/animations/NumberCounter';
 import { AddToBudgetSheet } from '@/components/budget/AddToBudgetSheet';
@@ -19,7 +18,11 @@ import {
   localDateKey,
 } from '@/lib/utils';
 
-export const BudgetDisplay = memo(function BudgetDisplay() {
+export const BudgetDisplay = memo(function BudgetDisplay({
+  onTopUp,
+}: {
+  onTopUp?: () => void;
+}) {
   const budget = useStore((s) => s.budget);
   const transactions = useStore((s) => s.transactions);
   const [showTopUp, setShowTopUp] = useState(false);
@@ -34,11 +37,12 @@ export const BudgetDisplay = memo(function BudgetDisplay() {
   const color = getBudgetColor(percentage);
   const symbol = getCurrencySymbol(budget.currency);
   const isLow = percentage >= 75;
+  const hasFractionalRemaining = budget.currency !== 'JPY' && Math.abs(remaining % 1) > 0.001;
 
   const todayKey = localDateKey(new Date());
-  const todaySpent = transactions
-    .filter((t) => localDateKey(t.created_at) === todayKey)
-    .reduce((s, t) => s + t.amount, 0);
+  const todaySpent = getSpentAmount(
+    transactions.filter((t) => localDateKey(t.created_at) === todayKey)
+  );
 
   return (
     <div className="px-5 pt-5 pb-3">
@@ -50,7 +54,7 @@ export const BudgetDisplay = memo(function BudgetDisplay() {
           <NumberCounter
             value={remaining}
             className="text-[56px] font-black text-white leading-none tracking-tight"
-            decimals={0}
+            decimals={hasFractionalRemaining ? 2 : 0}
           />
         </div>
         <p className="text-sm mt-1 font-semibold" style={{ color }}>
@@ -91,7 +95,8 @@ export const BudgetDisplay = memo(function BudgetDisplay() {
       {/* Top-up button — shown when budget is getting low (>75%) */}
       {isLow && (
         <button
-          onClick={() => setShowTopUp(true)}
+          type="button"
+          onClick={() => (onTopUp ? onTopUp() : setShowTopUp(true))}
           className="mt-3 w-full h-10 rounded-xl border border-[#22c55e]/30 bg-[#22c55e]/8 text-[#22c55e] text-sm font-bold flex items-center justify-center gap-1.5 active:bg-[#22c55e]/15 transition-colors"
         >
           <Plus className="w-4 h-4" />
@@ -99,7 +104,9 @@ export const BudgetDisplay = memo(function BudgetDisplay() {
         </button>
       )}
 
-      <AddToBudgetSheet isOpen={showTopUp} onClose={() => setShowTopUp(false)} />
+      {!onTopUp && (
+        <AddToBudgetSheet isOpen={showTopUp} onClose={() => setShowTopUp(false)} />
+      )}
     </div>
   );
 });

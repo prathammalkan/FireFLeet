@@ -33,7 +33,7 @@ export default function PrivacyPolicy() {
 
         <div className="bg-[#13131a] border border-[#1f1f2e] rounded-2xl p-5 space-y-6">
           <p className="text-sm text-[#9ca3af] leading-relaxed">
-            Last updated: October 2026
+            Last updated: November 2026
           </p>
 
           <section>
@@ -65,9 +65,9 @@ export default function PrivacyPolicy() {
           </section>
 
           <section>
-            <h2 className="text-base font-bold text-white mb-2">5. Cookies & Local Storage</h2>
+            <h2 className="text-base font-bold text-white mb-2">5. Cookies, Local Storage &amp; Device Cache</h2>
             <p className="text-sm text-[#9ca3af] leading-relaxed">
-              We use local storage strictly for essential application functionality, such as storing authentication tokens and your UI theme preferences. We do not use tracking cookies.
+              We use local storage strictly for essential UI preferences (such as theme and onboarding state) and an account-isolated IndexedDB cache on your device for instant loading and minimal server requests. All account-scoped cached data is automatically cleared when you sign out or reset your data. We do not use tracking cookies.
             </p>
           </section>
 

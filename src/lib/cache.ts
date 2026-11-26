@@ -142,19 +142,34 @@ function isFresh(entry: CacheEntry<unknown>, ttlMs: number): boolean {
 
 import type { Budget, Transaction } from './store';
 
+export interface CacheLookup<T> {
+  hit: boolean;
+  data: T | null;
+}
+
+/**
+ * Retrieve cached budget state including whether a fresh "no active budget"
+ * entry (`null`) was stored. Avoids re-querying Supabase on every mount when
+ * a user legitimately has no active budget yet.
+ */
+export async function getBudgetCacheState(userId: string): Promise<CacheLookup<Budget>> {
+  if (!userId) return { hit: false, data: null };
+  try {
+    const entry = await idbGet<CacheEntry<Budget | null>>('budgets', userId);
+    if (!entry || !isFresh(entry, TTL.BUDGET)) return { hit: false, data: null };
+    return { hit: true, data: entry.data ?? null };
+  } catch {
+    return { hit: false, data: null };
+  }
+}
+
 /**
  * Retrieve a cached budget for the given user.
  * Returns null if not cached, expired, or IndexedDB is unavailable.
  */
 export async function getCachedBudget(userId: string): Promise<Budget | null> {
-  if (!userId) return null;
-  try {
-    const entry = await idbGet<CacheEntry<Budget | null>>('budgets', userId);
-    if (!entry || !isFresh(entry, TTL.BUDGET)) return null;
-    return entry.data;
-  } catch {
-    return null;
-  }
+  const state = await getBudgetCacheState(userId);
+  return state.data;
 }
 
 /**

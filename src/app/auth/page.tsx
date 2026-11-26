@@ -1,35 +1,52 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Mail, Flame, ArrowRight } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-
+import { RateLimitError } from '@/lib/rateLimit';
 
 export default function AuthPage() {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [cooldownSec, setCooldownSec] = useState(0);
   const { signIn, signInWithGoogle } = useAuth();
+
+  useEffect(() => {
+    if (cooldownSec <= 0) return;
+    const timer = setTimeout(() => setCooldownSec((s) => Math.max(0, s - 1)), 1000);
+    return () => clearTimeout(timer);
+  }, [cooldownSec]);
 
   async function handleMagicLink(e: React.FormEvent) {
     e.preventDefault();
-    if (!email) return;
+    if (!email || loading) return;
     setLoading(true);
     setError('');
     try {
       await signIn(email);
       setSent(true);
-    } catch {
-      setError('Failed to send link. Check your email and try again.');
+      setCooldownSec(60);
+    } catch (err: unknown) {
+      if (err instanceof RateLimitError) {
+        setCooldownSec(Math.ceil(err.retryAfterMs / 1000));
+        setError(err.message);
+      } else if (err instanceof Error && err.message.includes('valid email')) {
+        setError(err.message);
+      } else {
+        setError('Failed to send link. Check your email and try again.');
+      }
     } finally {
       setLoading(false);
     }
   }
 
   async function handleGoogle() {
+    if (loading) return;
     setLoading(true);
+    setError('');
     try {
       await signInWithGoogle();
     } catch {
@@ -71,7 +88,13 @@ export default function AuthPage() {
                 We sent a magic link to <strong className="text-white">{email}</strong>.
                 Tap it to sign in instantly.
               </p>
+              {cooldownSec > 0 && (
+                <p className="mt-3 text-xs text-[#6b7280]">
+                  You can request another link in {cooldownSec}s
+                </p>
+              )}
               <button
+                type="button"
                 onClick={() => setSent(false)}
                 className="mt-6 text-[#f97316] text-sm font-semibold active:opacity-70"
               >
@@ -87,6 +110,7 @@ export default function AuthPage() {
             >
               {/* Google */}
               <button
+                type="button"
                 onClick={handleGoogle}
                 disabled={loading}
                 className="w-full h-14 rounded-2xl bg-[#13131a] border border-[#1f1f2e] text-white font-semibold flex items-center justify-center gap-3 mb-4 active:bg-[#1a1a24] transition-colors disabled:opacity-50"
@@ -124,16 +148,18 @@ export default function AuthPage() {
                 </div>
 
                 {error && (
-                  <p className="text-[#ef4444] text-sm text-center">{error}</p>
+                  <p role="alert" className="text-[#ef4444] text-sm text-center">{error}</p>
                 )}
 
                 <button
                   type="submit"
-                  disabled={loading || !email}
+                  disabled={loading || !email || cooldownSec > 0}
                   className="w-full h-14 rounded-2xl bg-gradient-to-r from-[#f97316] to-[#ea580c] text-white font-bold text-base flex items-center justify-center gap-2 active:opacity-80 transition-opacity disabled:opacity-40"
                 >
                   {loading ? (
                     <div className="w-5 h-5 rounded-full border-2 border-white border-t-transparent animate-spin-slow" />
+                  ) : cooldownSec > 0 ? (
+                    `Wait ${cooldownSec}s`
                   ) : (
                     <>Send Magic Link <ArrowRight className="w-4 h-4" /></>
                   )}

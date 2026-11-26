@@ -7,9 +7,24 @@ import { pendingDeleteTimers, pendingDeletes } from '@/lib/pendingDeletes';
 import { useAuth } from './useAuth';
 import { generateId, validateAmount } from '@/lib/utils';
 import { getCachedTransactions, setCachedTransactions } from '@/lib/cache';
+import {
+  assertMutationAllowed,
+  dedupeInFlight,
+  markFetched,
+  shouldRevalidate,
+} from '@/lib/rateLimit';
+import { CATEGORIES } from '@/components/budget/CategoryPicker';
 
 // Stable module-level singleton — no re-instantiation on render
 const supabase = getSupabaseBrowserClient();
+
+const VALID_CATEGORY_IDS = new Set<string>(CATEGORIES.map((c) => c.id));
+const TX_REVALIDATE_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes (matches cache TTL)
+
+function normalizeCategory(raw: unknown): string {
+  const val = String(raw || 'other').slice(0, 50);
+  return VALID_CATEGORY_IDS.has(val) ? val : 'other';
+}
 
 interface TransactionRow {
   id: string;
@@ -28,6 +43,7 @@ export function useTransactions() {
   const budget = useStore((s) => s.budget);
   const addTx = useStore((s) => s.addTransaction);
   const deleteTx = useStore((s) => s.deleteTransaction);
+  const updateTx = useStore((s) => s.updateTransaction);
   const setTransactions = useStore((s) => s.setTransactions);
 
   const normaliseRow = (t: TransactionRow) => {
@@ -35,7 +51,7 @@ export function useTransactions() {
     return {
       id: String(t.id),
       amount: isFinite(amount) ? amount : 0,
-      category: String(t.category || 'other'),
+      category: normalizeCategory(t.category),
       comment: t.comment ? String(t.comment).slice(0, 200) : null,
       created_at: String(t.created_at),
       userId: String(t.user_id),
@@ -43,7 +59,7 @@ export function useTransactions() {
     };
   };
 
-  const fetchTransactions = useCallback(async () => {
+  const fetchTransactions = useCallback(async (force = false) => {
     if (!user || !budget) return;
 
     // DAT-05: Verify budget belongs to current user
@@ -57,45 +73,53 @@ export function useTransactions() {
     // populate the new user's store with the previous user's transactions.
     const callerUserId = user.id;
     const callerBudgetId = budget.id;
+    const fetchKey = `tx:${callerUserId}:${callerBudgetId}`;
 
-    const { data, error } = await supabase
-      .from('transactions')
-      .select('id, amount, category, comment, created_at, user_id, budget_id')
-      .eq('user_id', callerUserId)
-      .eq('budget_id', callerBudgetId)
-      .order('created_at', { ascending: false })
-      .limit(500);
-
-    // After await: verify the active user/budget still match the caller's identity.
-    const currentState = useStore.getState();
-    if (
-      currentState.currentUser?.id !== callerUserId ||
-      currentState.budget?.id !== callerBudgetId
-    ) {
+    if (!force && !shouldRevalidate(fetchKey, TX_REVALIDATE_COOLDOWN_MS)) {
       return;
     }
 
-    if (error) {
-      console.warn('fetchTransactions: database request failed', error.message);
-      return;
-    }
+    await dedupeInFlight(fetchKey, async () => {
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('id, amount, category, comment, created_at, user_id, budget_id')
+        .eq('user_id', callerUserId)
+        .eq('budget_id', callerBudgetId)
+        .order('created_at', { ascending: false })
+        .limit(500);
 
-    if (data) {
-      const normalised = data
-        // Keep rows pending deletion hidden until the DB delete lands
-        .filter((t: TransactionRow) => !pendingDeletes.has(String(t.id)))
-        // Defence-in-depth: ensure every returned row belongs to the caller
-        .filter(
-          (t: TransactionRow) =>
-            String(t.user_id) === callerUserId &&
-            String(t.budget_id) === callerBudgetId
-        )
-        .map((t: TransactionRow) => normaliseRow(t));
+      // After await: verify the active user/budget still match the caller's identity.
+      const currentState = useStore.getState();
+      if (
+        currentState.currentUser?.id !== callerUserId ||
+        currentState.budget?.id !== callerBudgetId
+      ) {
+        return;
+      }
 
-      setTransactions(normalised);
-      // Write to cache after successful fetch (account + budget isolated)
-      void setCachedTransactions(callerUserId, callerBudgetId, normalised);
-    }
+      if (error) {
+        console.warn('fetchTransactions: database request failed', error.message);
+        return;
+      }
+
+      if (data) {
+        const normalised = data
+          // Keep rows pending deletion hidden until the DB delete lands
+          .filter((t: TransactionRow) => !pendingDeletes.has(String(t.id)))
+          // Defence-in-depth: ensure every returned row belongs to the caller
+          .filter(
+            (t: TransactionRow) =>
+              String(t.user_id) === callerUserId &&
+              String(t.budget_id) === callerBudgetId
+          )
+          .map((t: TransactionRow) => normaliseRow(t));
+
+        setTransactions(normalised);
+        markFetched(fetchKey);
+        // Write to cache after successful fetch (account + budget isolated)
+        void setCachedTransactions(callerUserId, callerBudgetId, normalised);
+      }
+    });
   }, [user, budget, setTransactions]);
 
   useEffect(() => {
@@ -113,24 +137,35 @@ export function useTransactions() {
       if (!user || !budget) return;
       const hydrateUserId = user.id;
       const hydrateBudgetId = budget.id;
+      const fetchKey = `tx:${hydrateUserId}:${hydrateBudgetId}`;
+
+      // If we already fetched recently in-memory and store already holds matching budget txs, skip work
+      if (!shouldRevalidate(fetchKey, TX_REVALIDATE_COOLDOWN_MS)) {
+        const inMemory = useStore.getState().transactions;
+        if (inMemory.length > 0 && inMemory[0]?.budgetId === hydrateBudgetId) {
+          return;
+        }
+      }
+
       // Hydrate from IndexedDB for instant display
       const cached = await getCachedTransactions(hydrateUserId, hydrateBudgetId);
       // Verify the user/budget have not changed since we started the async read
       const state = useStore.getState();
       if (
         state.currentUser?.id !== hydrateUserId ||
-        state.budget?.id !== hydrateBudgetId
+        state.budget?.id !== hydrateBudgetId ||
+        cancelled
       ) {
         return;
       }
-      if (cached !== null && !cancelled) {
+      if (cached !== null) {
         // Filter pending deletes from cached data too
         const filtered = cached.filter((t) => !pendingDeletes.has(t.id));
         setTransactions(filtered);
+        markFetched(fetchKey);
+        return; // Device cache is fresh — zero server load on tab navigation
       }
-      if (!cancelled) {
-        await fetchTransactions();
-      }
+      await fetchTransactions(true);
     }
 
     void hydrate();
@@ -149,13 +184,17 @@ export function useTransactions() {
       comment: string | null;
     }) => {
       if (!user || !budget) throw new Error('Not authenticated');
+      if (budget.userId !== user.id) throw new Error('Budget ownership mismatch');
+      assertMutationAllowed(`tx-write:${user.id}`);
 
       const amountError = validateAmount(amount);
       if (amountError) throw new Error(amountError);
 
-      const safeCategory = String(category).slice(0, 50);
+      const safeCategory = normalizeCategory(category);
       const safeComment = comment ? String(comment).trim().slice(0, 200) : null;
       const safeAmount = Math.round(amount * 100) / 100;
+      const callerUserId = user.id;
+      const callerBudgetId = budget.id;
 
       // Optimistic update
       const tempId = generateId();
@@ -165,8 +204,8 @@ export function useTransactions() {
         category: safeCategory,
         comment: safeComment,
         created_at: new Date().toISOString(),
-        userId: user.id,
-        budgetId: budget.id,
+        userId: callerUserId,
+        budgetId: callerBudgetId,
       };
       addTx(optimistic);
 
@@ -176,8 +215,8 @@ export function useTransactions() {
       const { data, error } = await supabase
         .from('transactions')
         .insert({
-          user_id: user.id,
-          budget_id: budget.id,
+          user_id: callerUserId,
+          budget_id: callerBudgetId,
           amount: safeAmount,
           category: safeCategory,
           comment: safeComment,
@@ -185,29 +224,38 @@ export function useTransactions() {
         .select('id, amount, category, comment, created_at, user_id, budget_id')
         .single();
 
+      // Guard against sign-out or budget switch while insert was in flight
+      const postState = useStore.getState();
+      if (
+        postState.currentUser?.id !== callerUserId ||
+        postState.budget?.id !== callerBudgetId
+      ) {
+        return;
+      }
+
       if (error) {
         deleteTx(tempId);
         throw error;
       }
 
-      // Replace temp with server record
-      deleteTx(tempId);
+      // Update temp entry in-place with server record so list position stays rock-solid
       const confirmed = {
         id: data.id,
         amount: Math.round(Number(data.amount) * 100) / 100,
-        category: String(data.category),
+        category: normalizeCategory(data.category),
         comment: data.comment ? String(data.comment).slice(0, 200) : null,
         created_at: data.created_at,
         userId: data.user_id,
         budgetId: data.budget_id,
       };
-      addTx(confirmed);
+      updateTx(tempId, confirmed);
 
-      // Invalidate transaction cache so next hydration gets fresh data
+      // Sync updated list to device cache
       const currentTxs = useStore.getState().transactions;
-      void setCachedTransactions(user.id, budget.id, currentTxs);
+      markFetched(`tx:${callerUserId}:${callerBudgetId}`);
+      void setCachedTransactions(callerUserId, callerBudgetId, currentTxs);
     },
-    [user, budget, addTx, deleteTx]
+    [user, budget, addTx, deleteTx, updateTx]
   );
 
   /**
@@ -223,6 +271,10 @@ export function useTransactions() {
 
       // A stale gesture must not issue a blind delete for an unknown row.
       if (!tx || !user) return;
+      assertMutationAllowed(`tx-write:${user.id}`);
+
+      const callerUserId = user.id;
+      const callerBudgetId = budget?.id ?? tx.budgetId;
 
       const previousTimer = pendingDeleteTimers.get(safeId);
       if (previousTimer) clearTimeout(previousTimer);
@@ -232,27 +284,32 @@ export function useTransactions() {
       // Remove from UI immediately
       deleteTx(safeId);
 
-      // Schedule permanent DB delete after 5s
+      // Schedule permanent DB delete after 5.5s
       const timer = setTimeout(async () => {
         if (!pendingDeletes.has(safeId)) return; // already restored or flushed
         pendingDeletes.delete(safeId);
         pendingDeleteTimers.delete(safeId);
+
+        if (useStore.getState().currentUser?.id !== callerUserId) return;
 
         try {
           const { error } = await supabase
             .from('transactions')
             .delete()
             .eq('id', safeId)
-            .eq('user_id', user.id);
+            .eq('user_id', callerUserId);
           if (error) throw error;
 
-          // Invalidate cache after confirmed delete
-          if (budget) {
+          if (useStore.getState().currentUser?.id !== callerUserId) return;
+
+          // Update device cache after confirmed delete
+          if (callerBudgetId) {
             const currentTxs = useStore.getState().transactions;
-            void setCachedTransactions(user.id, budget.id, currentTxs);
+            void setCachedTransactions(callerUserId, callerBudgetId, currentTxs);
           }
         } catch (e) {
           console.warn('deleteTransaction: DB delete threw', e);
+          if (useStore.getState().currentUser?.id !== callerUserId) return;
           // Restore only if a concurrent refresh has not already reinserted it.
           useStore.setState((state) => state.transactions.some((t) => t.id === tx.id)
             ? state
