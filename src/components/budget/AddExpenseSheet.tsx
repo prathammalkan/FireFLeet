@@ -1,14 +1,14 @@
 'use client';
 
-import { useState, useCallback, memo } from 'react';
+import { useState, useCallback, useEffect, useRef, memo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Delete, CheckCircle, AlertCircle } from 'lucide-react';
 import { BottomSheet } from '@/components/ui/BottomSheet';
-import { CategoryPicker } from './CategoryPicker';
-import { getCategoryById } from './CategoryPicker';
+import { CategoryPicker, getCategoryById } from './CategoryPicker';
 import { useTransactions } from '@/hooks/useTransactions';
 import { useStore } from '@/lib/store';
-import { cn, getCurrencySymbol } from '@/lib/utils';
+import { RateLimitError } from '@/lib/rateLimit';
+import { cn, formatNumberForCurrency, getCurrencySymbol } from '@/lib/utils';
 
 const NUMPAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', '⌫'];
 
@@ -27,10 +27,15 @@ export const AddExpenseSheet = memo(function AddExpenseSheet({
   const [error, setError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState('food');
   const [comment, setComment] = useState('');
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { addTransaction } = useTransactions();
   const budget = useStore((s) => s.budget);
 
-  function handleClose() {
+  const handleClose = useCallback(() => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
     setDisplay('0');
     setComment('');
     setSelectedCategory('food');
@@ -38,7 +43,13 @@ export const AddExpenseSheet = memo(function AddExpenseSheet({
     setShowSuccess(false);
     setIsSubmitting(false);
     onClose();
-  }
+  }, [onClose]);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
+  }, []);
 
   const handleKey = useCallback((key: string) => {
     navigator?.vibrate?.(8);
@@ -46,6 +57,10 @@ export const AddExpenseSheet = memo(function AddExpenseSheet({
     setDisplay((prev) => {
       if (key === '⌫') return prev.length > 1 ? prev.slice(0, -1) : '0';
       if (key === '.' && prev.includes('.')) return prev;
+      if (prev.includes('.')) {
+        const [, dec] = prev.split('.');
+        if (dec && dec.length >= 2) return prev;
+      }
       if (prev === '0' && key !== '.') return key;
       if (prev.length >= 9) return prev;
       return prev + key;
@@ -53,10 +68,11 @@ export const AddExpenseSheet = memo(function AddExpenseSheet({
   }, []);
 
   const amount = Math.round((display === '.' ? 0 : parseFloat(display) || 0) * 100) / 100;
-  const symbol = getCurrencySymbol(budget?.currency ?? 'INR');
+  const currency = budget?.currency ?? 'INR';
+  const symbol = getCurrencySymbol(currency);
   const cat = getCategoryById(selectedCategory);
 
-  async function handleSubmit() {
+  const handleSubmit = useCallback(async () => {
     if (amount <= 0 || !budget || isSubmitting) return;
     setIsSubmitting(true);
     setError(null);
@@ -67,16 +83,42 @@ export const AddExpenseSheet = memo(function AddExpenseSheet({
         comment: comment.trim() || null,
       });
       setShowSuccess(true);
-      setTimeout(handleClose, 900);
-    } catch {
-      setError('Could not save. Please try again.');
+      closeTimerRef.current = setTimeout(handleClose, 750);
+    } catch (err: unknown) {
+      if (err instanceof RateLimitError) {
+        setError(err.message);
+      } else {
+        setError('Could not save. Please try again.');
+      }
       setIsSubmitting(false);
     }
-  }
+  }, [amount, budget, isSubmitting, addTransaction, selectedCategory, comment, handleClose]);
+
+  // Support physical keyboard typing when sheet is open and note input is not focused
+  useEffect(() => {
+    if (!isOpen) return;
+    function onKeyDown(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (/^[0-9.]$/.test(e.key)) {
+        e.preventDefault();
+        handleKey(e.key);
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        handleKey('⌫');
+      } else if (e.key === 'Enter' && amount > 0 && !isSubmitting) {
+        e.preventDefault();
+        void handleSubmit();
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, handleKey, handleSubmit, amount, isSubmitting]);
 
   const budgetPct = budget && amount > 0
     ? Math.min(100, (amount / budget.amount) * 100)
     : 0;
+  const formattedAmount = amount > 0 ? formatNumberForCurrency(amount, currency) : '0';
 
   return (
     <BottomSheet isOpen={isOpen} onClose={handleClose} title="Add Expense">
@@ -85,9 +127,7 @@ export const AddExpenseSheet = memo(function AddExpenseSheet({
         {/* Amount display */}
         <div className="text-center pt-3">
           <div className="text-5xl font-black text-white tracking-tight">
-            {symbol}{amount > 0
-              ? amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })
-              : '0'}
+            {symbol}{formattedAmount}
           </div>
           {amount > 0 && budget && (
             <p className="text-sm text-[#9ca3af] mt-1">
@@ -180,9 +220,7 @@ export const AddExpenseSheet = memo(function AddExpenseSheet({
                   Saving…
                 </>
               ) : (
-                `Add ${symbol}${amount > 0
-                  ? amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })
-                  : '0'}`
+                `Add ${symbol}${formattedAmount}`
               )}
             </button>
           )}

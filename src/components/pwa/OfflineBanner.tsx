@@ -27,12 +27,16 @@ export function OfflineBanner() {
   const prevOnlineRef = useRef(true);
 
   useEffect(() => {
-    if (!prevOnlineRef.current && isOnline) {
-      setShowReconnected(true);
-      const timer = setTimeout(() => setShowReconnected(false), 3000);
-      return () => clearTimeout(timer);
-    }
+    const wasOffline = !prevOnlineRef.current;
     prevOnlineRef.current = isOnline;
+    if (wasOffline && isOnline) {
+      const showTimer = setTimeout(() => setShowReconnected(true), 0);
+      const hideTimer = setTimeout(() => setShowReconnected(false), 3000);
+      return () => {
+        clearTimeout(showTimer);
+        clearTimeout(hideTimer);
+      };
+    }
   }, [isOnline]);
 
   return (

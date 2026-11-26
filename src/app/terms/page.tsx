@@ -33,7 +33,7 @@ export default function TermsOfService() {
 
         <div className="bg-[#13131a] border border-[#1f1f2e] rounded-2xl p-5 space-y-6">
           <p className="text-sm text-[#9ca3af] leading-relaxed">
-            Last updated: October 2026
+            Last updated: November 2026
           </p>
 
           <section>

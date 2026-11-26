@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronRight, Delete } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Delete } from 'lucide-react';
 import { useBudget } from '@/hooks/useBudget';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
-import { cn, toDateInputValue } from '@/lib/utils';
+import { RateLimitError } from '@/lib/rateLimit';
+import { cn, formatNumberForCurrency, toDateInputValue } from '@/lib/utils';
 import { type Currency, type PeriodType } from '@/lib/store';
 
 const NUMPAD = ['1','2','3','4','5','6','7','8','9','.','0','⌫'];
@@ -22,6 +23,7 @@ const CURRENCIES: { code: Currency; name: string; symbol: string }[] = [
 const PERIODS: { type: PeriodType; label: string; desc: string }[] = [
   { type: 'weekly', label: 'Weekly', desc: 'Resets every 7 days' },
   { type: 'monthly', label: 'Monthly', desc: 'Resets every month' },
+  { type: 'custom', label: 'Custom', desc: 'Choose your own end date' },
 ];
 type Step = 'amount' | 'currency' | 'period';
 const STEPS: Step[] = ['amount', 'currency', 'period'];
@@ -32,21 +34,49 @@ export function BudgetSetup() {
   const [display, setDisplay] = useState('0');
   const [currency, setCurrency] = useState<Currency>('INR');
   const [period, setPeriod] = useState<PeriodType>('monthly');
+  const [customEndDate, setCustomEndDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 14);
+    return toDateInputValue(d);
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { createBudget } = useBudget();
   const router = useRouter();
 
-  function handleKey(key: string) {
+  const handleKey = useCallback((key: string) => {
     navigator?.vibrate?.(8);
+    setError('');
     setDisplay((prev) => {
       if (key === '⌫') return prev.length > 1 ? prev.slice(0, -1) : '0';
       if (key === '.' && prev.includes('.')) return prev;
+      if (prev.includes('.')) {
+        const [, dec] = prev.split('.');
+        if (dec && dec.length >= 2) return prev;
+      }
       if (prev === '0' && key !== '.') return key;
       if (prev.length >= 8) return prev;
       return prev + key;
     });
-  }
+  }, []);
+
+  useEffect(() => {
+    if (step !== 'amount') return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (/^[0-9.]$/.test(e.key)) {
+        e.preventDefault();
+        handleKey(e.key);
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        handleKey('⌫');
+      } else if (e.key === 'Enter' && (parseFloat(display) || 0) > 0) {
+        e.preventDefault();
+        setStep('currency');
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [step, display, handleKey]);
 
   if (authLoading || !user) {
     return (
@@ -71,56 +101,88 @@ export function BudgetSetup() {
     );
   }
 
+  const sym = CURRENCIES.find((c) => c.code === currency)?.symbol ?? '₹';
+  const todayStr = toDateInputValue();
+
   async function handleCreate() {
+    if (loading) return;
     const amount = parseFloat(display);
 
     // DAT-03 FIX: Exhaustive client-side validation
     if (!isFinite(amount) || isNaN(amount)) { setError('Please enter a valid amount.'); return; }
     if (amount <= 0) { setError('Budget must be greater than zero.'); return; }
-    if (amount > 9_999_999) { setError('Budget cannot exceed ₹9,999,999.'); return; }
+    if (amount > 9_999_999) { setError(`Budget cannot exceed ${sym}9,999,999.`); return; }
+
+    const now = new Date();
+    const startDate = toDateInputValue(now);
+    let endDateStr: string;
+    if (period === 'custom') {
+      if (!customEndDate || customEndDate < startDate) {
+        setError('End date must be today or later.');
+        return;
+      }
+      endDateStr = customEndDate;
+    } else {
+      const endDate = new Date(now);
+      if (period === 'weekly') endDate.setDate(now.getDate() + 7);
+      else endDate.setMonth(now.getMonth() + 1);
+      endDateStr = toDateInputValue(endDate);
+    }
 
     setLoading(true);
     setError('');
     try {
-       const now = new Date();
-       const endDate = new Date(now);
-       if (period === 'weekly') endDate.setDate(now.getDate() + 7);
-       else endDate.setMonth(now.getMonth() + 1);
-
       await createBudget({
         amount: Math.round(amount * 100) / 100, // normalize to 2dp
         currency,
         periodType: period,
-         startDate: toDateInputValue(now),
-         endDate: toDateInputValue(endDate),
+        startDate,
+        endDate: endDateStr,
       });
       router.replace('/');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to create budget.';
-      setError(msg.includes('Invalid') ? msg : 'Failed to create budget. Please try again.');
+      if (err instanceof RateLimitError) {
+        setError(err.message);
+      } else {
+        const msg = err instanceof Error ? err.message : 'Failed to create budget.';
+        setError(msg.includes('Invalid') ? msg : 'Failed to create budget. Please try again.');
+      }
       setLoading(false);
     }
   }
 
   const stepIndex = STEPS.indexOf(step);
   const amount = parseFloat(display) || 0;
-  // Find symbol of selected currency
-  const sym = CURRENCIES.find((c) => c.code === currency)?.symbol ?? '₹';
 
   return (
     <div
-      className="page-root flex flex-col px-5"
+      className="page-root-full flex flex-col px-5"
       style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 32px)' }}
     >
       {/* Progress */}
-      <div className="flex gap-2 mb-6">
-        {STEPS.map((s, i) => (
-          <div
-            key={s}
-            className="flex-1 h-1 rounded-full transition-colors duration-300"
-            style={{ background: i <= stepIndex ? '#f97316' : '#1f1f2e' }}
-          />
-        ))}
+      <div className="flex items-center gap-3 mb-6">
+        {stepIndex > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              setError('');
+              setStep(STEPS[stepIndex - 1]);
+            }}
+            aria-label="Go back"
+            className="w-8 h-8 rounded-xl bg-[#13131a] border border-[#1f1f2e] flex items-center justify-center text-[#9ca3af] shrink-0 active:opacity-70"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+        )}
+        <div className="flex-1 flex gap-2">
+          {STEPS.map((s, i) => (
+            <div
+              key={s}
+              className="flex-1 h-1 rounded-full transition-colors duration-300"
+              style={{ background: i <= stepIndex ? '#f97316' : '#1f1f2e' }}
+            />
+          ))}
+        </div>
       </div>
 
       {/* Title */}
@@ -147,7 +209,7 @@ export function BudgetSetup() {
       </AnimatePresence>
 
       {/* Step content */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-y-auto no-scrollbar">
         <AnimatePresence mode="wait">
           {step === 'amount' && (
             <motion.div
@@ -159,7 +221,7 @@ export function BudgetSetup() {
             >
               <div className="text-center py-6">
                 <p className="text-5xl font-black text-white">
-                  {sym}{amount.toLocaleString('en-IN')}
+                  {sym}{formatNumberForCurrency(amount, currency)}
                 </p>
               </div>
               <div className="grid grid-cols-3 gap-2.5">
@@ -192,6 +254,7 @@ export function BudgetSetup() {
             >
               {CURRENCIES.map((c) => (
                 <button
+                  type="button"
                   key={c.code}
                   onClick={() => setCurrency(c.code)}
                   className={cn(
@@ -231,6 +294,7 @@ export function BudgetSetup() {
             >
               {PERIODS.map((p) => (
                 <button
+                  type="button"
                   key={p.type}
                   onClick={() => setPeriod(p.type)}
                   className={cn(
@@ -252,8 +316,25 @@ export function BudgetSetup() {
                 </button>
               ))}
 
+              {period === 'custom' && (
+                <div className="bg-[#13131a] border border-[#1f1f2e] rounded-2xl p-4 mt-1">
+                  <label htmlFor="custom-end-date" className="block text-xs font-bold text-[#9ca3af] uppercase tracking-wider mb-2">
+                    End Date
+                  </label>
+                  <input
+                    id="custom-end-date"
+                    type="date"
+                    min={todayStr}
+                    value={customEndDate}
+                    onChange={(e) => setCustomEndDate(e.target.value)}
+                    className="w-full h-11 bg-[#1a1a24] border border-[#1f1f2e] rounded-xl px-3 text-white outline-none focus:border-[#f97316]"
+                    style={{ fontSize: 16 }}
+                  />
+                </div>
+              )}
+
               {error && (
-                <p className="text-[#ef4444] text-sm text-center mt-2">{error}</p>
+                <p role="alert" className="text-[#ef4444] text-sm text-center mt-2">{error}</p>
               )}
             </motion.div>
           )}
@@ -263,11 +344,12 @@ export function BudgetSetup() {
       {/* CTA */}
       <div className="py-6" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom, 24px))' }}>
         <button
-          disabled={step === 'amount' && amount <= 0}
-          onPointerDown={() => {
+          type="button"
+          disabled={(step === 'amount' && amount <= 0) || loading}
+          onClick={() => {
             if (step === 'amount') setStep('currency');
             else if (step === 'currency') setStep('period');
-            else handleCreate();
+            else void handleCreate();
           }}
           className="w-full h-14 rounded-2xl bg-gradient-to-r from-[#f97316] to-[#ea580c] text-white font-bold text-lg flex items-center justify-center gap-2 active:opacity-80 transition-opacity disabled:opacity-40"
         >

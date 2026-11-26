@@ -1,13 +1,19 @@
 'use client';
 
-import { useState, useCallback, memo } from 'react';
+import { useState, useCallback, useEffect, useRef, memo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Delete, CheckCircle, AlertCircle, Plus } from 'lucide-react';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { useStore } from '@/lib/store';
 import { useBudget } from '@/hooks/useBudget';
-import { validateAmount, getCurrencySymbol, formatCurrency, cn } from '@/lib/utils';
-
+import { RateLimitError } from '@/lib/rateLimit';
+import {
+  validateAmount,
+  getCurrencySymbol,
+  formatCurrency,
+  formatNumberForCurrency,
+  cn,
+} from '@/lib/utils';
 
 const NUMPAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', '⌫'];
 const QUICK_AMOUNTS = [500, 1000, 2000, 5000];
@@ -25,21 +31,33 @@ export const AddToBudgetSheet = memo(function AddToBudgetSheet({
   const [showSuccess, setShowSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const budget = useStore((s) => s.budget);
   const { updateBudgetAmount } = useBudget();
 
-  const symbol = getCurrencySymbol(budget?.currency ?? 'INR');
+  const currency = budget?.currency ?? 'INR';
+  const symbol = getCurrencySymbol(currency);
   const addAmount = Math.round((parseFloat(display) || 0) * 100) / 100;
   const newTotal = budget ? Math.round((budget.amount + addAmount) * 100) / 100 : addAmount;
 
-  function handleClose() {
+  const handleClose = useCallback(() => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
     setDisplay('0');
     setError(null);
     setShowSuccess(false);
     setIsSubmitting(false);
     onClose();
-  }
+  }, [onClose]);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
+  }, []);
 
   const handleKey = useCallback((key: string) => {
     navigator?.vibrate?.(8);
@@ -47,13 +65,17 @@ export const AddToBudgetSheet = memo(function AddToBudgetSheet({
     setDisplay((prev) => {
       if (key === '⌫') return prev.length > 1 ? prev.slice(0, -1) : '0';
       if (key === '.' && prev.includes('.')) return prev;
+      if (prev.includes('.')) {
+        const [, dec] = prev.split('.');
+        if (dec && dec.length >= 2) return prev;
+      }
       if (prev === '0' && key !== '.') return key;
       if (prev.length >= 9) return prev;
       return prev + key;
     });
   }, []);
 
-  async function handleSubmit() {
+  const handleSubmit = useCallback(async () => {
     if (!budget || isSubmitting) return;
     const err = validateAmount(addAmount);
     if (err) { setError(err); return; }
@@ -65,12 +87,34 @@ export const AddToBudgetSheet = memo(function AddToBudgetSheet({
     try {
       await updateBudgetAmount(newTotal);
       setShowSuccess(true);
-      setTimeout(handleClose, 900);
-    } catch {
-      setError('Could not update budget. Please try again.');
+      closeTimerRef.current = setTimeout(handleClose, 750);
+    } catch (e: unknown) {
+      if (e instanceof RateLimitError) {
+        setError(e.message);
+      } else {
+        setError('Could not update budget. Please try again.');
+      }
       setIsSubmitting(false);
     }
-  }
+  }, [budget, isSubmitting, addAmount, newTotal, updateBudgetAmount, handleClose]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (/^[0-9.]$/.test(e.key)) {
+        e.preventDefault();
+        handleKey(e.key);
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        handleKey('⌫');
+      } else if (e.key === 'Enter' && addAmount > 0 && !isSubmitting) {
+        e.preventDefault();
+        void handleSubmit();
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, handleKey, handleSubmit, addAmount, isSubmitting]);
 
   return (
     <BottomSheet isOpen={isOpen} onClose={handleClose} title="Top-up Budget">
@@ -98,9 +142,7 @@ export const AddToBudgetSheet = memo(function AddToBudgetSheet({
         <div className="text-center pt-1">
           <p className="text-[10px] text-[#9ca3af] font-bold uppercase tracking-widest mb-1">Adding</p>
           <div className="text-5xl font-black text-white tracking-tight">
-            {symbol}{addAmount > 0
-              ? addAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })
-              : '0'}
+            {symbol}{addAmount > 0 ? formatNumberForCurrency(addAmount, currency) : '0'}
           </div>
         </div>
 

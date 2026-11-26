@@ -1,24 +1,72 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, X } from 'lucide-react';
 import { Navigation } from '@/components/ui/Navigation';
+import { UndoToast } from '@/components/ui/UndoToast';
 import { TransactionItem } from '@/components/budget/TransactionItem';
 import { useStore } from '@/lib/store';
+import { useRequireAuth } from '@/hooks/useRequireAuth';
 import { useTransactions } from '@/hooks/useTransactions';
 import { useBudget } from '@/hooks/useBudget';
 import { groupTransactionsByDate, formatCurrency, getSpentAmount } from '@/lib/utils';
 import { CATEGORIES } from '@/components/budget/CategoryPicker';
 
 export default function HistoryPage() {
+  const { user, loading: authLoading } = useRequireAuth();
   const [search, setSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [filterCat, setFilterCat] = useState<string | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const transactions = useStore((s) => s.transactions);
   const budget = useStore((s) => s.budget);
-  const { deleteTransaction, deleteError, clearDeleteError } = useTransactions();
+  const { deleteTransaction, restoreTransaction, deleteError, clearDeleteError } = useTransactions();
   useBudget();
+
+  useEffect(() => {
+    return () => {
+      if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    };
+  }, []);
+
+  const handleDelete = useCallback((id: string) => {
+    navigator?.vibrate?.(10);
+    deleteTransaction(id);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setPendingDeleteId(id);
+    undoTimerRef.current = setTimeout(() => setPendingDeleteId(null), 5000);
+  }, [deleteTransaction]);
+
+  const handleUndo = useCallback(() => {
+    if (!pendingDeleteId) return;
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    restoreTransaction(pendingDeleteId);
+    setPendingDeleteId(null);
+  }, [pendingDeleteId, restoreTransaction]);
+
+  const dismissUndo = useCallback(() => {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setPendingDeleteId(null);
+  }, []);
+
+  if (authLoading || !user) {
+    return (
+      <div className="page-root">
+        <div
+          className="px-5 pb-3"
+          style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}
+        >
+          <div className="skeleton w-28 h-7 mb-4" />
+          <div className="skeleton w-full h-20 rounded-2xl mb-3" />
+          <div className="skeleton w-full h-[72px] rounded-2xl mb-2" />
+          <div className="skeleton w-full h-[72px] rounded-2xl" />
+        </div>
+        <Navigation />
+      </div>
+    );
+  }
 
   const filtered = transactions.filter((t) => {
     const matchSearch = search
@@ -31,6 +79,7 @@ export default function HistoryPage() {
 
   const groups = groupTransactionsByDate(filtered);
   const total = getSpentAmount(filtered);
+  const hasFilters = Boolean(search || filterCat);
 
   return (
     <div className="page-root">
@@ -128,7 +177,22 @@ export default function HistoryPage() {
           <div className="text-center py-16">
             <div className="text-4xl mb-3">🔍</div>
             <p className="text-white font-semibold">No transactions found</p>
-            <p className="text-[#9ca3af] text-sm mt-1">Try a different search or filter</p>
+            <p className="text-[#9ca3af] text-sm mt-1">
+              {hasFilters ? 'Try a different search or filter' : 'Expenses you log will appear here'}
+            </p>
+            {hasFilters && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('');
+                  setFilterCat(null);
+                  setSearchOpen(false);
+                }}
+                className="mt-4 px-4 py-2 rounded-xl border border-[#f97316]/40 text-[#f97316] text-xs font-semibold active:opacity-70"
+              >
+                Clear filters
+              </button>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-4">
@@ -146,7 +210,7 @@ export default function HistoryPage() {
                       key={t.id}
                       transaction={t}
                       currency={budget?.currency ?? 'INR'}
-                      onDelete={deleteTransaction}
+                      onDelete={handleDelete}
                     />
                   ))}
                 </div>
@@ -155,6 +219,16 @@ export default function HistoryPage() {
           </div>
         )}
       </div>
+
+      <AnimatePresence>
+        {pendingDeleteId && (
+          <UndoToast
+            message="Expense deleted"
+            onUndo={handleUndo}
+            onDismiss={dismissUndo}
+          />
+        )}
+      </AnimatePresence>
 
       <Navigation />
     </div>

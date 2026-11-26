@@ -28,12 +28,41 @@ export function formatCurrency(amount: number, currency: Currency = 'INR'): stri
   const safeAmount = isFinite(amount) ? amount : 0;
   const safeCurrency = isValidCurrency(currency) ? currency : 'INR';
   const { locale } = CURRENCY_CONFIG[safeCurrency];
+  const rounded = Math.round(safeAmount * 100) / 100;
+  const hasDecimals = safeCurrency !== 'JPY' && Math.abs(rounded % 1) > 0.001;
   return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency: safeCurrency,
+    minimumFractionDigits: hasDecimals ? 2 : 0,
+    maximumFractionDigits: hasDecimals ? 2 : 0,
+  }).format(rounded);
+}
+
+export function formatNumberForCurrency(amount: number, currency: Currency = 'INR'): string {
+  const safeAmount = isFinite(amount) ? amount : 0;
+  const safeCurrency = isValidCurrency(currency) ? currency : 'INR';
+  const { locale } = CURRENCY_CONFIG[safeCurrency];
+  const rounded = Math.round(safeAmount * 100) / 100;
+  const hasDecimals = safeCurrency !== 'JPY' && Math.abs(rounded % 1) > 0.001;
+  return new Intl.NumberFormat(locale, {
     minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(safeAmount);
+    maximumFractionDigits: hasDecimals ? 2 : 0,
+  }).format(rounded);
+}
+
+/** Validate email format strictly without network call. */
+export function isValidEmail(email: string): boolean {
+  const trimmed = email.trim();
+  if (!trimmed || trimmed.length > 254) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(trimmed);
+}
+
+/** Validate YYYY-MM-DD calendar date string. */
+export function isValidIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, m, d] = value.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
 }
 
 /** Escape a value for a CSV cell and neutralise spreadsheet formulas. */

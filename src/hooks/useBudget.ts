@@ -1,11 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase';
 import { useStore } from '@/lib/store';
 import { useAuth } from './useAuth';
-import { isValidCurrency, toDateInputValue } from '@/lib/utils';
-import { getCachedBudget, setCachedBudget } from '@/lib/cache';
+import { isValidCurrency, isValidIsoDate, toDateInputValue } from '@/lib/utils';
+import { getBudgetCacheState, setCachedBudget } from '@/lib/cache';
+import {
+  assertMutationAllowed,
+  dedupeInFlight,
+  markFetched,
+  shouldRevalidate,
+} from '@/lib/rateLimit';
 import type { Currency, PeriodType } from '@/lib/store';
 
 // Stable module-level singleton — no re-instantiation on render
@@ -30,77 +36,86 @@ interface CreateBudgetParams {
 export function useBudget() {
   const { user } = useAuth();
   const setBudget = useStore((s) => s.setBudget);
+  const setTransactions = useStore((s) => s.setTransactions);
   const budget = useStore((s) => s.budget);
-  const lastFetchRef = useRef<number>(0);
 
-  const fetchBudget = useCallback(async () => {
+  const fetchBudget = useCallback(async (force = false) => {
     if (!user) return;
     // Capture userId at call time — used for post-await ownership verification.
     const callerUserId = user.id;
-    const today = toDateInputValue();
-    const { data, error } = await supabase
-      .from('budgets')
-      .select('id, amount, currency, period_type, start_date, end_date, user_id')
-      .eq('user_id', callerUserId)
-      .gte('end_date', today)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const fetchKey = `budget:${callerUserId}`;
 
-    // ACCOUNT-TRANSITION GUARD: after the await the active user may have changed
-    // (sign-out, account switch). Discard a response that belongs to a stale session
-    // so it can never populate the new user's store.
-    if (useStore.getState().currentUser?.id !== callerUserId) return;
-
-    if (error) {
-      console.error('[useBudget] fetch error:', error.message);
+    if (!force && !shouldRevalidate(fetchKey, REVALIDATE_COOLDOWN_MS)) {
       return;
     }
 
-    if (data) {
-      // Defence-in-depth: verify the returned row belongs to the caller (RLS + .eq() enforce
-      // this server-side, but an explicit check ensures a logic bug cannot cross user data).
-      if (String(data.user_id) !== callerUserId) {
-        console.error('[useBudget] Cross-user data in response; discarding');
+    await dedupeInFlight(fetchKey, async () => {
+      const today = toDateInputValue();
+      const { data, error } = await supabase
+        .from('budgets')
+        .select('id, amount, currency, period_type, start_date, end_date, user_id')
+        .eq('user_id', callerUserId)
+        .gte('end_date', today)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      // ACCOUNT-TRANSITION GUARD: after the await the active user may have changed
+      // (sign-out, account switch). Discard a response that belongs to a stale session
+      // so it can never populate the new user's store.
+      if (useStore.getState().currentUser?.id !== callerUserId) return;
+
+      if (error) {
+        console.error('[useBudget] fetch error:', error.message);
         return;
       }
 
-      // SEC-04 FIX: Validate all server values before trusting them
-      const currency = isValidCurrency(data.currency) ? data.currency : 'INR';
-      const periodType = VALID_PERIOD_TYPES.includes(data.period_type as PeriodType)
-        ? (data.period_type as PeriodType)
-        : 'monthly';
-      const amount = Number(data.amount);
+      if (data) {
+        // Defence-in-depth: verify the returned row belongs to the caller (RLS + .eq() enforce
+        // this server-side, but an explicit check ensures a logic bug cannot cross user data).
+        if (String(data.user_id) !== callerUserId) {
+          console.error('[useBudget] Cross-user data in response; discarding');
+          return;
+        }
 
-      if (!isFinite(amount) || amount <= 0) {
-        console.error('[useBudget] Invalid amount from server:', data.amount);
-        return;
+        // SEC-04 FIX: Validate all server values before trusting them
+        const currency = isValidCurrency(data.currency) ? data.currency : 'INR';
+        const periodType = VALID_PERIOD_TYPES.includes(data.period_type as PeriodType)
+          ? (data.period_type as PeriodType)
+          : 'monthly';
+        const amount = Number(data.amount);
+
+        if (!isFinite(amount) || amount <= 0) {
+          console.error('[useBudget] Invalid amount from server:', data.amount);
+          return;
+        }
+
+        const validated = {
+          id: String(data.id),
+          amount: Math.round(amount * 100) / 100,  // normalize to 2dp
+          currency,
+          periodType,
+          startDate: String(data.start_date),
+          endDate: String(data.end_date),
+          userId: callerUserId,
+        };
+
+        setBudget(validated);
+        markFetched(fetchKey);
+
+        // Write to cache after successful fetch (account-isolated by userId)
+        void setCachedBudget(callerUserId, validated);
+      } else {
+        // No active budget — clear any stale budget and transactions
+        setBudget(null);
+        setTransactions([]);
+        markFetched(fetchKey);
+        void setCachedBudget(callerUserId, null);
       }
+    });
+  }, [user, setBudget, setTransactions]);
 
-      const validated = {
-        id: String(data.id),
-        amount: Math.round(amount * 100) / 100,  // normalize to 2dp
-        currency,
-        periodType,
-        startDate: String(data.start_date),
-        endDate: String(data.end_date),
-        userId: callerUserId,
-      };
-
-      setBudget(validated);
-      lastFetchRef.current = Date.now();
-
-      // Write to cache after successful fetch (account-isolated by userId)
-      void setCachedBudget(callerUserId, validated);
-    } else {
-      // No active budget — clear any stale cached budget
-      setBudget(null);
-      lastFetchRef.current = Date.now();
-      void setCachedBudget(callerUserId, null);
-    }
-  }, [user, setBudget]);
-
-  // On mount: hydrate from IndexedDB cache first, then fetch from Supabase
+  // On mount: hydrate from IndexedDB cache first; only hit Supabase if cache missed/expired
   useEffect(() => {
     if (!user) return;
     if (budget) return; // already hydrated in memory
@@ -110,17 +125,20 @@ export function useBudget() {
     async function hydrate() {
       if (!user) return;
       const hydrateUserId = user.id;
-      // Try cache first for instant paint
-      const cached = await getCachedBudget(hydrateUserId);
+      const fetchKey = `budget:${hydrateUserId}`;
+
+      const cached = await getBudgetCacheState(hydrateUserId);
       // Verify the user has not changed since we started the async read
-      if (useStore.getState().currentUser?.id !== hydrateUserId) return;
-      if (cached !== null && !cancelled) {
-        setBudget(cached);
-        // Still revalidate from network in background — cache may be stale
+      if (useStore.getState().currentUser?.id !== hydrateUserId || cancelled) return;
+
+      if (cached.hit) {
+        setBudget(cached.data);
+        if (!cached.data) setTransactions([]);
+        markFetched(fetchKey);
+        return; // Device cache is fresh — zero server load on mount
       }
-      if (!cancelled) {
-        await fetchBudget();
-      }
+
+      await fetchBudget(true);
     }
 
     void hydrate();
@@ -128,13 +146,14 @@ export function useBudget() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
-  // Revalidate on window focus and visibility restore — replaces setInterval polling.
-  // A 2-minute cooldown prevents redundant fetches from rapid tab-switching.
+  // Revalidate on window focus and visibility restore — replaces polling.
+  // A 2-minute shared cooldown prevents redundant fetches across mounted hooks.
   useEffect(() => {
     if (!user) return;
+    const uid = user.id;
 
     function maybeRevalidate() {
-      if (Date.now() - lastFetchRef.current < REVALIDATE_COOLDOWN_MS) return;
+      if (!shouldRevalidate(`budget:${uid}`, REVALIDATE_COOLDOWN_MS)) return;
       void fetchBudget();
     }
 
@@ -157,6 +176,7 @@ export function useBudget() {
   const createBudget = useCallback(
     async (params: CreateBudgetParams) => {
       if (!user) throw new Error('Not authenticated');
+      assertMutationAllowed(`budget-write:${user.id}`);
 
       // Validate all params server-side too (DB constraints enforce), but be explicit
       if (!isFinite(params.amount) || params.amount <= 0 || params.amount > 9_999_999) {
@@ -164,13 +184,17 @@ export function useBudget() {
       }
       if (!isValidCurrency(params.currency)) throw new Error('Invalid currency');
       if (!VALID_PERIOD_TYPES.includes(params.periodType)) throw new Error('Invalid period');
+      if (!isValidIsoDate(params.startDate) || !isValidIsoDate(params.endDate) || params.endDate < params.startDate) {
+        throw new Error('Invalid budget date range');
+      }
 
+      const callerUserId = user.id;
       const safeAmount = Math.round(params.amount * 100) / 100;
 
       const { data, error } = await supabase
         .from('budgets')
         .insert({
-          user_id: user.id,
+          user_id: callerUserId,
           amount: safeAmount,
           currency: params.currency,
           period_type: params.periodType,
@@ -181,6 +205,7 @@ export function useBudget() {
         .single();
 
       if (error) throw error;
+      if (useStore.getState().currentUser?.id !== callerUserId) return;
 
       const validated = {
         id: data.id,
@@ -195,10 +220,11 @@ export function useBudget() {
       };
 
       setBudget(validated);
-      lastFetchRef.current = Date.now();
-      void setCachedBudget(user.id, validated);
+      setTransactions([]);
+      markFetched(`budget:${callerUserId}`);
+      void setCachedBudget(callerUserId, validated);
     },
-    [user, setBudget]
+    [user, setBudget, setTransactions]
   );
 
   /**
@@ -208,24 +234,35 @@ export function useBudget() {
   const updateBudgetAmount = useCallback(
     async (newAmount: number): Promise<number> => {
       if (!user || !budget) throw new Error('Not authenticated');
+      if (budget.userId !== user.id) throw new Error('Budget ownership mismatch');
+      assertMutationAllowed(`budget-write:${user.id}`);
+
       if (!isFinite(newAmount) || newAmount <= 0 || newAmount > 9_999_999) {
         throw new Error('Invalid amount');
       }
+      const callerUserId = user.id;
+      const callerBudget = budget;
       const safeAmount = Math.round(newAmount * 100) / 100;
 
       const { data, error } = await supabase
         .from('budgets')
         .update({ amount: safeAmount })
-        .eq('id', budget.id)
-        .eq('user_id', user.id)
+        .eq('id', callerBudget.id)
+        .eq('user_id', callerUserId)
         .select('amount')
         .single();
 
       if (error) throw error;
       const confirmed = Math.round(Number(data.amount) * 100) / 100;
-      const updated = { ...budget, amount: confirmed };
-      setBudget(updated);
-      void setCachedBudget(user.id, updated);
+      if (
+        useStore.getState().currentUser?.id === callerUserId &&
+        useStore.getState().budget?.id === callerBudget.id
+      ) {
+        const updated = { ...callerBudget, amount: confirmed };
+        setBudget(updated);
+        markFetched(`budget:${callerUserId}`);
+        void setCachedBudget(callerUserId, updated);
+      }
       return confirmed;
     },
     [user, budget, setBudget]
